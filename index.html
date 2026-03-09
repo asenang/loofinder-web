@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aussie Loo Finder</title>
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="loader"><div class="spinner"></div> Fetching facilities...</div>
+    <button id="btn-search-area" onclick="triggerSearchArea()">↻ Search this area</button>
+
+    <div id="reviewModal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-title" id="modalFacilityName">Review Facility</div>
+            <div class="stars">
+                <span class="star" data-value="5" onclick="setRating(5)">★</span>
+                <span class="star" data-value="4" onclick="setRating(4)">★</span>
+                <span class="star" data-value="3" onclick="setRating(3)">★</span>
+                <span class="star" data-value="2" onclick="setRating(2)">★</span>
+                <span class="star" data-value="1" onclick="setRating(1)">★</span>
+            </div>
+            <textarea id="reviewText" placeholder="Was it clean? Was there toilet paper? Leave a tip for others..."></textarea>
+            <div class="modal-actions">
+                <button class="btn-cancel" onclick="closeModal()">Cancel</button>
+                <button class="btn-primary" style="flex: 2;" onclick="submitReview()">Submit Review</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="ui-container">
+        <h1>Aussie Loo Finder 🧻</h1>
+        <p>Find clean, accessible public toilets near you.</p>
+        <div class="filters">
+            <div class="filter-chip" id="chip-accessible" onclick="toggleFilter('accessible')">♿ Accessible</div>
+            <div class="filter-chip" id="chip-baby" onclick="toggleFilter('baby')">👶 Baby Change</div>
+        </div>
+        <button class="btn-primary" onclick="findNearest()">Find Nearest to Me</button>
+    </div>
+
+    <div id="map"></div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
