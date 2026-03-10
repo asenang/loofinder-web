@@ -1,5 +1,5 @@
 const map = L.map('map', { zoomControl: false }).setView([-37.8300, 144.8500], 14);
-L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png').addTo(map);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { maxZoom: 20 }).addTo(map);
 
 const BACKEND_URL = "https://loofinder-api.onrender.com";
 let allToiletData = { features: [] };
@@ -24,6 +24,7 @@ function showToast(message, type = 'success') {
 // --- Data Fetching ---
 async function loadDataForCurrentBounds() {
     document.getElementById('loader').style.display = 'flex';
+    document.getElementById('btn-search-area').style.display = 'none';
     try {
         const bounds = map.getBounds();
         const overpassQuery = `[out:json];node["amenity"="toilets"](${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()});out;`;
@@ -72,18 +73,46 @@ function renderMapPoints() {
         onEachFeature: (f, l) => {
             const name = f.properties.Name;
             const safeId = "rt-" + name.replace(/[^a-z0-9]/gi, '');
-            l.bindPopup(`<b>${name}</b><div id="${safeId}" style="color:#f59e0b; font-weight:700; margin:5px 0;">⭐ Loading...</div><button class="btn-review-small" onclick="openModal('${name.replace(/'/g, "\\'")}')">Rate It</button>`);
+            l.bindPopup(`<b>${name}</b><div id="${safeId}" style="color:#f59e0b; font-weight:700; margin:5px 0;">⭐ Loading...</div>`);
             l.on('popupopen', () => fetchAndDisplayRating(name, safeId));
             f.layerRef = l;
         }
     }).addTo(map);
 
-    displayFeatures.slice(0, 5).forEach(f => {
-        const item = document.createElement('div');
-        item.className = 'list-item';
-        item.innerHTML = `<div style="display:flex; justify-content:space-between;"><b>${f.properties.Name}</b><span style="color:#007aff;">${(f.properties.dist/1000).toFixed(2)}km</span></div>`;
-        item.onclick = () => { map.flyTo([f.geometry.coordinates[1], f.geometry.coordinates[0]], 16); f.layerRef.openPopup(); };
-        listContainer.appendChild(item);
+    // 6. Draw the Sidebar List (Top 5)
+    const top5Nearest = displayFeatures.slice(0, 5);
+    
+    top5Nearest.forEach(feature => {
+        const name = feature.properties.Name;
+        const accIcon = feature.properties.Accessible ? '♿' : '';
+        const babyIcon = feature.properties.BabyChange ? '👶' : '';
+        const distanceKm = (feature.properties.dist / 1000).toFixed(2);
+        
+        const lat = feature.geometry.coordinates[1];
+        const lng = feature.geometry.coordinates[0];
+        const mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=walking`;
+
+        const listItem = document.createElement('div');
+        listItem.className = 'list-item';
+        listItem.innerHTML = `
+            <div class="list-item-header">
+                <div class="list-item-title">${name}</div>
+                <div class="distance-badge">${distanceKm} km</div>
+            </div>
+            <div class="list-item-features">${accIcon} ${babyIcon}</div>
+            <div class="list-item-actions">
+                <a href="${mapsUrl}" target="_blank" class="btn-action-small btn-route" onclick="event.stopPropagation();">🚶 Route</a>
+                <button class="btn-action-small btn-rate" onclick="event.stopPropagation(); openModal('${name.replace(/'/g, "\\'")}')">⭐ Rate</button>
+            </div>
+        `;
+        
+        listItem.onclick = () => {
+            map.flyTo([lat, lng], 16, { animate: true, duration: 1 });
+            feature.layerReference.openPopup();
+            if (window.innerWidth <= 768) window.scrollTo({ top: 0, behavior: 'smooth' });
+        };
+        
+        listContainer.appendChild(listItem);
     });
 }
 
@@ -112,6 +141,9 @@ function findNearest() {
     }, () => showToast("Location denied.", "error"));
 }
 
+map.on('moveend', () => { document.getElementById('btn-search-area').style.display = 'block'; });
+function triggerSearchArea() { loadDataForCurrentBounds(); }
+
 // --- Modals & Filters ---
 function toggleFilter(t) { activeFilters[t] = !activeFilters[t]; document.getElementById('chip-'+t).classList.toggle('active'); renderMapPoints(); }
 function openModal(n) { currentReviewFacility = n; document.getElementById('modalFacilityName').innerText = n; document.getElementById('reviewModal').style.display = 'flex'; currentRating = 0; updateStarsUI(); }
@@ -136,7 +168,7 @@ async function openReviewsList(n) {
     container.innerHTML = "Loading...";
     const res = await fetch(`${BACKEND_URL}/api/reviews/${encodeURIComponent(n)}`);
     const data = await res.json();
-    container.innerHTML = data.reviews.map(r => `<div class="review-card">⭐ ${r.rating}<br>${r.review_text}</div>`).join('') || "No text reviews.";
+    container.innerHTML = data.reviews.map(r => `<div class="review-card">⭐ ${r.rating}<br>${r.review_text.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</div>`).join('') || "No text reviews.";
 }
 function closeReviewsList() { document.getElementById('reviewsListModal').style.display = 'none'; }
 
