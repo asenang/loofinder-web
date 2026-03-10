@@ -10,11 +10,8 @@
     <link rel="stylesheet" href="style.css">
 
     <link rel="icon" type="image/x-icon" href="assets/favicon.ico">
-    <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32x32.png">
-    <link rel="icon" type="image/png" sizes="16x16" href="assets/favicon-16x16.png">
-    <link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png">
+    <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
     <link rel="icon" type="image/png" sizes="192x192" href="assets/icon-192.png">
-    <link rel="icon" type="image/png" sizes="512x512" href="assets/icon-512.png">
 </head>
 <body>
     <div id="toast-container" class="toast-container"></div>
@@ -32,10 +29,10 @@
                 <span class="star" data-value="2" onclick="setRating(2)">★</span>
                 <span class="star" data-value="1" onclick="setRating(1)">★</span>
             </div>
-            <textarea id="reviewText" placeholder="Was it clean? Was there toilet paper? Leave a tip for others..."></textarea>
+            <textarea id="reviewText" placeholder="Was it clean? Leave a tip for others..."></textarea>
             <div class="modal-actions">
                 <button class="btn-cancel" onclick="closeModal()">Cancel</button>
-                <button class="btn-primary" style="flex: 2;" onclick="submitReview()">Submit Review</button>
+                <button class="btn-primary" style="flex: 2;" onclick="submitReview()">Submit</button>
             </div>
         </div>
     </div>
@@ -43,8 +40,7 @@
     <div id="reviewsListModal" class="modal-overlay">
         <div class="modal-content">
             <div class="modal-title" id="listModalFacilityName">Reviews</div>
-            <div id="reviewsContainer" class="reviews-list-container">
-                </div>
+            <div id="reviewsContainer" class="reviews-list-container"></div>
             <div class="modal-actions">
                 <button class="btn-cancel" style="width: 100%;" onclick="closeReviewsList()">Close</button>
             </div>
@@ -57,12 +53,11 @@
             <p>Find clean, accessible public toilets near you.</p>
             <div class="filters">
                 <div class="filter-chip" id="chip-accessible" onclick="toggleFilter('accessible')">♿ Accessible</div>
-                <div class="filter-chip" id="chip-baby" onclick="toggleFilter('baby')">👶 Baby Change</div>
+                <div class="filter-chip" id="chip-baby" onclick="toggleFilter('baby')">👶 Baby</div>
             </div>
             <button class="btn-primary" onclick="findNearest()">Find Nearest to Me</button>
         </div>
-        
-        <div class="list-header">Nearby Facilities</div>
+        <div class="list-header">Nearest 5 Facilities</div>
         <div id="facility-list" class="facility-list"></div>
     </div>
 
