@@ -10,6 +10,8 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
+    <div id="toast-container" class="toast-container"></div>
+
     <div id="loader"><div class="spinner"></div> Fetching facilities...</div>
     <button id="btn-search-area" onclick="triggerSearchArea()">↻ Search this area</button>
 
@@ -31,14 +33,30 @@
         </div>
     </div>
 
-    <div class="ui-container">
-        <h1>🧻 LooFinder</h1>
-        <p>Find clean, accessible public toilets near you.</p>
-        <div class="filters">
-            <div class="filter-chip" id="chip-accessible" onclick="toggleFilter('accessible')">♿ Accessible</div>
-            <div class="filter-chip" id="chip-baby" onclick="toggleFilter('baby')">👶 Baby Change</div>
+    <div id="reviewsListModal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-title" id="listModalFacilityName">Reviews</div>
+            <div id="reviewsContainer" class="reviews-list-container">
+                </div>
+            <div class="modal-actions">
+                <button class="btn-cancel" style="width: 100%;" onclick="closeReviewsList()">Close</button>
+            </div>
         </div>
-        <button class="btn-primary" onclick="findNearest()">Find Nearest to Me</button>
+    </div>
+
+    <div class="sidebar">
+        <div class="sidebar-top">
+            <h1>🧻 LooFinder</h1>
+            <p>Find clean, accessible public toilets near you.</p>
+            <div class="filters">
+                <div class="filter-chip" id="chip-accessible" onclick="toggleFilter('accessible')">♿ Accessible</div>
+                <div class="filter-chip" id="chip-baby" onclick="toggleFilter('baby')">👶 Baby Change</div>
+            </div>
+            <button class="btn-primary" onclick="findNearest()">Find Nearest to Me</button>
+        </div>
+        
+        <div class="list-header">Nearby Facilities</div>
+        <div id="facility-list" class="facility-list"></div>
     </div>
 
     <div id="map"></div>
