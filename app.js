@@ -59,7 +59,9 @@ function renderMapPoints() {
     if (currentMapLayer) map.removeLayer(currentMapLayer);
     const listContainer = document.getElementById('facility-list');
     listContainer.innerHTML = '';
-    const center = map.getCenter();
+    
+    // FIX 3: Calculate distance from your ACTUAL GPS dot, falling back to map center if location isn't found yet
+    const referencePoint = userLocationMarker ? userLocationMarker.getLatLng() : map.getCenter();
 
     let displayFeatures = allToiletData.features.filter(f => {
         if (activeFilters.accessible && !f.properties.Accessible) return false;
@@ -68,13 +70,18 @@ function renderMapPoints() {
     });
 
     displayFeatures.forEach(f => {
-        f.properties.dist = map.distance(center, L.latLng(f.geometry.coordinates[1], f.geometry.coordinates[0]));
+        const lat = f.geometry.coordinates[1];
+        const lng = f.geometry.coordinates[0];
+        f.properties.dist = map.distance(referencePoint, L.latLng(lat, lng));
+        
+        // Instant Pre-fetch Cache
         if (!ratingCache[f.properties.Name]) {
             fetch(`${BACKEND_URL}/api/reviews/${encodeURIComponent(f.properties.Name)}`)
                 .then(r => r.json()).then(d => ratingCache[f.properties.Name] = d.reviews);
         }
     });
 
+    // Sort closest to furthest based on your GPS location
     displayFeatures.sort((a,b) => a.properties.dist - b.properties.dist);
 
     currentMapLayer = L.geoJSON({type: "FeatureCollection", features: displayFeatures}, {
@@ -84,15 +91,31 @@ function renderMapPoints() {
         onEachFeature: (f, l) => {
             const name = f.properties.Name;
             const safeId = "rt-" + name.replace(/[^a-z0-9]/gi, '');
+            const lat = f.geometry.coordinates[1];
+            const lng = f.geometry.coordinates[0];
+            
+            // Official Google Maps Directions URL
+            const mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=walking`;
+
+            // FIX 1 & 2: Restored Directions and Rate buttons directly inside the map popup cards
             l.bindPopup(`
                 <div style="font-weight:700; font-size:15px; color:#111;">${name}</div>
-                <div id="${safeId}" style="color:#666; margin:8px 0;">Loading rating...</div>
+                <div id="${safeId}" style="color:#666; margin:8px 0 12px 0;">Loading rating...</div>
+                <div style="display: flex; gap: 8px;">
+                    <a href="${mapsUrl}" target="_blank" class="btn-action-small btn-directions" style="flex:1;">
+                        <span class="material-symbols-outlined" style="font-size: 16px;">directions</span> Directions
+                    </a>
+                    <button class="btn-action-small btn-rate" style="flex:1;" onclick="openModal('${name.replace(/'/g, "\\'")}')">
+                        <span class="material-symbols-outlined" style="font-size: 16px;">star</span> Rate
+                    </button>
+                </div>
             `);
             l.on('popupopen', () => fetchAndDisplayRating(name, safeId));
             f.layerRef = l;
         }
     }).addTo(map);
 
+    // Draw the Sidebar List (Top 5)
     const top5Nearest = displayFeatures.slice(0, 5);
     
     top5Nearest.forEach(feature => {
@@ -107,6 +130,8 @@ function renderMapPoints() {
 
         const listItem = document.createElement('div');
         listItem.className = 'list-item';
+        
+        // Sidebar list also accurately reflects distance, Directions, and Rate
         listItem.innerHTML = `
             <div class="list-item-header">
                 <div class="list-item-title">${name}</div>
