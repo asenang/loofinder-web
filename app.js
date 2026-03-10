@@ -10,12 +10,21 @@ let activeFilters = { accessible: false, baby: false };
 let currentReviewFacility = "";
 let currentRating = 0;
 
+// Custom Monotone Map Pin
+const toiletIcon = L.divIcon({
+    className: 'custom-pin',
+    html: '<span class="material-symbols-outlined" style="font-size: 16px;">wc</span>',
+    iconSize: [28, 28],
+    iconAnchor: [14, 14]
+});
+
 // --- Notification System ---
 function showToast(message, type = 'success') {
     const container = document.getElementById('toast-container');
     const toast = document.createElement('div');
     toast.className = `toast ${type}`;
-    toast.innerHTML = `<span>${type === 'success' ? '✅' : '⚠️'}</span> ${message}`;
+    const icon = type === 'success' ? 'check_circle' : 'error';
+    toast.innerHTML = `<span class="material-symbols-outlined">${icon}</span> ${message}`;
     container.appendChild(toast);
     setTimeout(() => toast.classList.add('hiding'), 3000);
     setTimeout(() => toast.remove(), 3500);
@@ -60,7 +69,6 @@ function renderMapPoints() {
 
     displayFeatures.forEach(f => {
         f.properties.dist = map.distance(center, L.latLng(f.geometry.coordinates[1], f.geometry.coordinates[0]));
-        // Instant Pre-fetch Cache
         if (!ratingCache[f.properties.Name]) {
             fetch(`${BACKEND_URL}/api/reviews/${encodeURIComponent(f.properties.Name)}`)
                 .then(r => r.json()).then(d => ratingCache[f.properties.Name] = d.reviews);
@@ -70,22 +78,27 @@ function renderMapPoints() {
     displayFeatures.sort((a,b) => a.properties.dist - b.properties.dist);
 
     currentMapLayer = L.geoJSON({type: "FeatureCollection", features: displayFeatures}, {
+        pointToLayer: function (feature, latlng) {
+            return L.marker(latlng, {icon: toiletIcon});
+        },
         onEachFeature: (f, l) => {
             const name = f.properties.Name;
             const safeId = "rt-" + name.replace(/[^a-z0-9]/gi, '');
-            l.bindPopup(`<b>${name}</b><div id="${safeId}" style="color:#f59e0b; font-weight:700; margin:5px 0;">⭐ Loading...</div>`);
+            l.bindPopup(`
+                <div style="font-weight:700; font-size:15px; color:#111;">${name}</div>
+                <div id="${safeId}" style="color:#666; margin:8px 0;">Loading rating...</div>
+            `);
             l.on('popupopen', () => fetchAndDisplayRating(name, safeId));
             f.layerRef = l;
         }
     }).addTo(map);
 
-    // 6. Draw the Sidebar List (Top 5)
     const top5Nearest = displayFeatures.slice(0, 5);
     
     top5Nearest.forEach(feature => {
         const name = feature.properties.Name;
-        const accIcon = feature.properties.Accessible ? '♿' : '';
-        const babyIcon = feature.properties.BabyChange ? '👶' : '';
+        const accIcon = feature.properties.Accessible ? '<span class="material-symbols-outlined" title="Accessible" style="font-size:16px;">accessible</span>' : '';
+        const babyIcon = feature.properties.BabyChange ? '<span class="material-symbols-outlined" title="Baby Change" style="font-size:16px;">baby_changing_station</span>' : '';
         const distanceKm = (feature.properties.dist / 1000).toFixed(2);
         
         const lat = feature.geometry.coordinates[1];
@@ -101,8 +114,12 @@ function renderMapPoints() {
             </div>
             <div class="list-item-features">${accIcon} ${babyIcon}</div>
             <div class="list-item-actions">
-                <a href="${mapsUrl}" target="_blank" class="btn-action-small btn-route" onclick="event.stopPropagation();">🚶 Route</a>
-                <button class="btn-action-small btn-rate" onclick="event.stopPropagation(); openModal('${name.replace(/'/g, "\\'")}')">⭐ Rate</button>
+                <a href="${mapsUrl}" target="_blank" class="btn-action-small btn-directions" onclick="event.stopPropagation();">
+                    <span class="material-symbols-outlined" style="font-size: 16px;">directions</span> Directions
+                </a>
+                <button class="btn-action-small btn-rate" onclick="event.stopPropagation(); openModal('${name.replace(/'/g, "\\'")}')">
+                    <span class="material-symbols-outlined" style="font-size: 16px;">star</span> Rate
+                </button>
             </div>
         `;
         
@@ -122,8 +139,12 @@ async function fetchAndDisplayRating(name, id) {
     const reviews = ratingCache[name] || [];
     if (reviews.length > 0) {
         const avg = (reviews.reduce((s, r) => s + r.rating, 0) / reviews.length).toFixed(1);
-        el.innerHTML = `<span class="clickable-rating" onclick="openReviewsList('${name.replace(/'/g, "\\'")}')">⭐ ${avg} (${reviews.length} reviews)</span>`;
-    } else { el.innerHTML = `⭐ No reviews yet`; }
+        el.innerHTML = `<span class="clickable-rating" onclick="openReviewsList('${name.replace(/'/g, "\\'")}')">
+            <span class="material-symbols-outlined" style="font-size:16px;">star</span> ${avg} (${reviews.length})
+        </span>`;
+    } else { 
+        el.innerHTML = `<span style="font-size:13px; font-weight:600;"><span class="material-symbols-outlined" style="font-size:14px; vertical-align:middle;">star_outline</span> No reviews yet</span>`; 
+    }
 }
 
 // --- GPS Logic ---
@@ -168,7 +189,7 @@ async function openReviewsList(n) {
     container.innerHTML = "Loading...";
     const res = await fetch(`${BACKEND_URL}/api/reviews/${encodeURIComponent(n)}`);
     const data = await res.json();
-    container.innerHTML = data.reviews.map(r => `<div class="review-card">⭐ ${r.rating}<br>${r.review_text.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</div>`).join('') || "No text reviews.";
+    container.innerHTML = data.reviews.map(r => `<div class="review-card"><b>★ ${r.rating}</b><br>${r.review_text.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</div>`).join('') || "No text reviews.";
 }
 function closeReviewsList() { document.getElementById('reviewsListModal').style.display = 'none'; }
 

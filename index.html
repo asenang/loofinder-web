@@ -3,10 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🧻 LooFinder</title>
+    <title>LooFinder</title>
     
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0" />
+    
     <link rel="stylesheet" href="style.css">
 
     <link rel="icon" type="image/x-icon" href="assets/favicon.ico">
@@ -17,7 +20,7 @@
     <div id="toast-container" class="toast-container"></div>
 
     <div id="loader"><div class="spinner"></div> Fetching facilities...</div>
-    <button id="btn-search-area" onclick="triggerSearchArea()">↻ Search this area</button>
+    <button id="btn-search-area" onclick="triggerSearchArea()"><span class="material-symbols-outlined" style="vertical-align: middle; font-size: 18px;">refresh</span> Search this area</button>
 
     <div id="reviewModal" class="modal-overlay">
         <div class="modal-content">
@@ -49,13 +52,21 @@
 
     <div class="sidebar">
         <div class="sidebar-top">
-            <h1>🧻 LooFinder</h1>
+            <h1 style="display: flex; align-items: center; gap: 8px;">
+                <span class="material-symbols-outlined">wc</span> LooFinder
+            </h1>
             <p>Find clean, accessible public toilets near you.</p>
             <div class="filters">
-                <div class="filter-chip" id="chip-accessible" onclick="toggleFilter('accessible')">♿ Accessible</div>
-                <div class="filter-chip" id="chip-baby" onclick="toggleFilter('baby')">👶 Baby</div>
+                <div class="filter-chip" id="chip-accessible" onclick="toggleFilter('accessible')">
+                    <span class="material-symbols-outlined" style="font-size: 16px; vertical-align: middle;">accessible</span> Accessible
+                </div>
+                <div class="filter-chip" id="chip-baby" onclick="toggleFilter('baby')">
+                    <span class="material-symbols-outlined" style="font-size: 16px; vertical-align: middle;">baby_changing_station</span> Baby
+                </div>
             </div>
-            <button class="btn-primary" onclick="findNearest()">Find Nearest to Me</button>
+            <button class="btn-primary" onclick="findNearest()">
+                <span class="material-symbols-outlined" style="vertical-align: middle; font-size: 18px;">my_location</span> Find Nearest to Me
+            </button>
         </div>
         <div class="list-header">Nearest 5 Facilities</div>
         <div id="facility-list" class="facility-list"></div>
