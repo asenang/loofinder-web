@@ -10,7 +10,7 @@ let activeFilters = { accessible: false, baby: false };
 let currentReviewFacility = "";
 let currentRating = 0;
 
-// Custom Monotone Map Pin
+// Custom Map Pin (Now matches the blue theme in CSS)
 const toiletIcon = L.divIcon({
     className: 'custom-pin',
     html: '<span class="material-symbols-outlined" style="font-size: 16px;">wc</span>',
@@ -60,7 +60,7 @@ function renderMapPoints() {
     const listContainer = document.getElementById('facility-list');
     listContainer.innerHTML = '';
     
-    // FIX 3: Calculate distance from your ACTUAL GPS dot, falling back to map center if location isn't found yet
+    // Accurate distance tracking from the user's actual dot
     const referencePoint = userLocationMarker ? userLocationMarker.getLatLng() : map.getCenter();
 
     let displayFeatures = allToiletData.features.filter(f => {
@@ -81,7 +81,6 @@ function renderMapPoints() {
         }
     });
 
-    // Sort closest to furthest based on your GPS location
     displayFeatures.sort((a,b) => a.properties.dist - b.properties.dist);
 
     currentMapLayer = L.geoJSON({type: "FeatureCollection", features: displayFeatures}, {
@@ -93,14 +92,12 @@ function renderMapPoints() {
             const safeId = "rt-" + name.replace(/[^a-z0-9]/gi, '');
             const lat = f.geometry.coordinates[1];
             const lng = f.geometry.coordinates[0];
-            
-            // Official Google Maps Directions URL
             const mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=walking`;
 
-            // FIX 1 & 2: Restored Directions and Rate buttons directly inside the map popup cards
+            // Popups now have the restored buttons
             l.bindPopup(`
-                <div style="font-weight:700; font-size:15px; color:#111;">${name}</div>
-                <div id="${safeId}" style="color:#666; margin:8px 0 12px 0;">Loading rating...</div>
+                <div style="font-weight:700; font-size:15px; color:#2c3e50;">${name}</div>
+                <div id="${safeId}" style="color:#7f8c8d; margin:8px 0 12px 0;">Loading rating...</div>
                 <div style="display: flex; gap: 8px;">
                     <a href="${mapsUrl}" target="_blank" class="btn-action-small btn-directions" style="flex:1;">
                         <span class="material-symbols-outlined" style="font-size: 16px;">directions</span> Directions
@@ -115,7 +112,6 @@ function renderMapPoints() {
         }
     }).addTo(map);
 
-    // Draw the Sidebar List (Top 5)
     const top5Nearest = displayFeatures.slice(0, 5);
     
     top5Nearest.forEach(feature => {
@@ -165,7 +161,7 @@ async function fetchAndDisplayRating(name, id) {
     if (reviews.length > 0) {
         const avg = (reviews.reduce((s, r) => s + r.rating, 0) / reviews.length).toFixed(1);
         el.innerHTML = `<span class="clickable-rating" onclick="openReviewsList('${name.replace(/'/g, "\\'")}')">
-            <span class="material-symbols-outlined" style="font-size:16px;">star</span> ${avg} (${reviews.length})
+            <span class="material-symbols-outlined" style="font-size:16px; color:#f59e0b;">star</span> ${avg} (${reviews.length})
         </span>`;
     } else { 
         el.innerHTML = `<span style="font-size:13px; font-weight:600;"><span class="material-symbols-outlined" style="font-size:14px; vertical-align:middle;">star_outline</span> No reviews yet</span>`; 
@@ -214,7 +210,7 @@ async function openReviewsList(n) {
     container.innerHTML = "Loading...";
     const res = await fetch(`${BACKEND_URL}/api/reviews/${encodeURIComponent(n)}`);
     const data = await res.json();
-    container.innerHTML = data.reviews.map(r => `<div class="review-card"><b>★ ${r.rating}</b><br>${r.review_text.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</div>`).join('') || "No text reviews.";
+    container.innerHTML = data.reviews.map(r => `<div class="review-card"><b style="color:#f59e0b;">★ ${r.rating}</b><br>${r.review_text.replace(/</g, "<").replace(/>/g, ">")}</div>`).join('') || "No text reviews.";
 }
 function closeReviewsList() { document.getElementById('reviewsListModal').style.display = 'none'; }
 
