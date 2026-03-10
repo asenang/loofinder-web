@@ -12,7 +12,7 @@ let currentReviewFacility = "";
 let currentRating = 0;
 
 // Update this with your live backend URL! Make sure there is NO trailing slash.
-const BACKEND_URL = "https://loofinder-api-xxxx.onrender.com";
+const BACKEND_URL = "https://loofinder-api.onrender.com";
 
 // --- Custom Notification System ---
 function showToast(message, type = 'success') {
@@ -84,17 +84,32 @@ function renderMapPoints() {
     const listContainer = document.getElementById('facility-list');
     listContainer.innerHTML = ''; 
 
-    const filteredFeatures = allToiletData.features.filter(feature => {
+    // 1. Get current location (center of the map view)
+    const currentCenter = map.getCenter();
+
+    // 2. Filter features based on accessible/baby buttons
+    let displayFeatures = allToiletData.features.filter(feature => {
         if (activeFilters.accessible && feature.properties.Accessible !== true) return false;
         if (activeFilters.baby && feature.properties.BabyChange !== true) return false;
         return true;
     });
 
-    if (filteredFeatures.length === 0) {
+    if (displayFeatures.length === 0) {
         listContainer.innerHTML = '<div style="padding: 20px; text-align: center; color: #7f8c8d;">No facilities found in this area. Try moving the map!</div>';
+        return;
     }
 
-    currentMapLayer = L.geoJSON({ type: "FeatureCollection", features: filteredFeatures }, {
+    // 3. Calculate distance for every toilet (in meters)
+    displayFeatures.forEach(feature => {
+        const toiletLatLng = L.latLng(feature.geometry.coordinates[1], feature.geometry.coordinates[0]);
+        feature.properties.distanceMeters = map.distance(currentCenter, toiletLatLng);
+    });
+
+    // 4. Sort the list from closest to furthest
+    displayFeatures.sort((a, b) => a.properties.distanceMeters - b.properties.distanceMeters);
+
+    // 5. Draw the Map Pins
+    currentMapLayer = L.geoJSON({ type: "FeatureCollection", features: displayFeatures }, {
         onEachFeature: function (feature, layer) {
             const name = feature.properties.Name;
             const accIcon = feature.properties.Accessible ? '♿' : '';
@@ -107,7 +122,6 @@ function renderMapPoints() {
             const safeId = "rating-" + name.replace(/[^a-zA-Z0-9]/g, '');
             const safeName = name.replace(/'/g, "\\'");
 
-            // 1. Bind Popup
             layer.bindPopup(`
                 <div class="toilet-title">${name}</div>
                 <div id="${safeId}" style="font-size: 13px; color: #f59e0b; font-weight: 700; margin-bottom: 6px;">
@@ -116,31 +130,51 @@ function renderMapPoints() {
                 <div class="toilet-features">${accIcon} ${babyIcon} <span style="color:#7f8c8d; font-weight:normal; margin-left:8px;">${sourceIcon}</span></div>
                 <div style="display: flex; gap: 8px;">
                     <button class="btn-review-small" style="flex: 1;" onclick="openModal('${safeName}')">⭐ Rate</button>
-                    <a href="${mapsUrl}" target="_blank" 
-                       style="flex: 1; text-align: center; text-decoration: none; background: #e2e8f0; color: #2c3e50; padding: 6px 12px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer;">
-                       🚶 Route
-                    </a>
+                    <a href="${mapsUrl}" target="_blank" style="flex: 1; text-align: center; text-decoration: none; background: #e2e8f0; color: #2c3e50; padding: 6px 12px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer;">🚶 Route</a>
                 </div>
             `);
 
             layer.on('popupopen', () => fetchAndDisplayRating(name, safeId));
-
-            // 2. Add to Sidebar
-            const listItem = document.createElement('div');
-            listItem.className = 'list-item';
-            listItem.innerHTML = `
-                <div class="list-item-title">${name}</div>
-                <div class="list-item-features">${accIcon} ${babyIcon} <span style="margin-left:8px;">${sourceIcon}</span></div>
-            `;
             
-            listItem.onclick = () => {
-                map.flyTo([lat, lng], 16, { animate: true, duration: 1 });
-                layer.openPopup();
-                if (window.innerWidth <= 768) window.scrollTo({ top: 0, behavior: 'smooth' });
-            };
-            listContainer.appendChild(listItem);
+            // Save reference to open it later via the list
+            feature.layerReference = layer; 
         }
     }).addTo(map);
+
+    // 6. Draw the Sidebar List (Only take the top 5 nearest)
+    const top5Nearest = displayFeatures.slice(0, 5);
+    
+    top5Nearest.forEach(feature => {
+        const name = feature.properties.Name;
+        const accIcon = feature.properties.Accessible ? '♿' : '';
+        const babyIcon = feature.properties.BabyChange ? '👶' : '';
+        const sourceIcon = feature.properties.Source === 'Gov' ? '🏛️ Official' : '';
+        
+        // Convert meters to kilometers and format
+        const distanceKm = (feature.properties.distanceMeters / 1000).toFixed(2);
+
+        const listItem = document.createElement('div');
+        listItem.className = 'list-item';
+        listItem.innerHTML = `
+            <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                <div class="list-item-title">${name}</div>
+                <div style="font-size: 12px; font-weight: 600; color: #007aff; background: #eef2ff; padding: 3px 8px; border-radius: 12px; white-space: nowrap;">${distanceKm} km</div>
+            </div>
+            <div class="list-item-features">${accIcon} ${babyIcon} <span style="margin-left:8px;">${sourceIcon}</span></div>
+        `;
+        
+        listItem.onclick = () => {
+            const lat = feature.geometry.coordinates[1];
+            const lng = feature.geometry.coordinates[0];
+            
+            map.flyTo([lat, lng], 16, { animate: true, duration: 1 });
+            feature.layerReference.openPopup();
+            
+            if (window.innerWidth <= 768) window.scrollTo({ top: 0, behavior: 'smooth' });
+        };
+        
+        listContainer.appendChild(listItem);
+    });
 }
 
 map.whenReady(() => loadDataForCurrentBounds());
@@ -150,6 +184,7 @@ function triggerSearchArea() { loadDataForCurrentBounds(); }
 function findNearest() {
     if ("geolocation" in navigator) {
         navigator.geolocation.getCurrentPosition(function(position) {
+            // This updates the map center, naturally triggering the distance recalculation next
             map.flyTo([position.coords.latitude, position.coords.longitude], 15, { animate: true, duration: 1.5 });
             setTimeout(loadDataForCurrentBounds, 1600);
         });
@@ -236,7 +271,7 @@ async function openReviewsList(facilityName) {
         if (data.reviews && data.reviews.length > 0) {
             container.innerHTML = data.reviews.reverse().map(rev => {
                 const stars = '★'.repeat(rev.rating) + '☆'.repeat(5 - rev.rating);
-                const safeText = rev.review_text ? rev.review_text.replace(/</g, "&lt;").replace(/>/g, "&gt;") : "<em>No written review provided.</em>";
+                const safeText = rev.review_text ? rev.review_text.replace(/</g, "<").replace(/>/g, ">") : "<em>No written review provided.</em>";
                 return `
                     <div class="review-card">
                         <div class="review-card-header"><span class="review-card-stars">${stars}</span></div>
