@@ -14,18 +14,30 @@ let userLocationMarker = null;
 
 const BACKEND_URL = "https://loofinder-api.onrender.com";
 
-// --- Custom Notification System ---
+// --- Bulletproof Notification System ---
 function showToast(message, type = 'success') {
     const container = document.getElementById('toast-container');
+    if (!container) return;
+
     const toast = document.createElement('div');
     toast.className = `toast ${type}`;
+    
     const icon = type === 'success' ? '✅' : '⚠️';
     toast.innerHTML = `<span>${icon}</span> <span>${message}</span>`;
+    
     container.appendChild(toast);
+    
+    // 1. Start the fade-out animation after 3 seconds
     setTimeout(() => {
         toast.classList.add('hiding');
-        toast.addEventListener('transitionend', () => toast.remove());
     }, 3000);
+
+    // 2. Forced removal after 3.5 seconds (in case transitionend fails)
+    setTimeout(() => {
+        if (toast.parentNode) {
+            toast.remove();
+        }
+    }, 3500);
 }
 
 // --- Data Fetching ---
@@ -173,8 +185,6 @@ function triggerSearchArea() { loadDataForCurrentBounds(); }
 
 function findNearest() {
     if ("geolocation" in navigator) {
-        showToast("Locating you...", "success");
-        
         navigator.geolocation.getCurrentPosition(function(position) {
             const lat = position.coords.latitude;
             const lng = position.coords.longitude;
