@@ -10,8 +10,8 @@ let currentMapLayer = null;
 let activeFilters = { accessible: false, baby: false };
 let currentReviewFacility = "";
 let currentRating = 0;
+let userLocationMarker = null;
 
-// Update this with your live backend URL! Make sure there is NO trailing slash.
 const BACKEND_URL = "https://loofinder-api.onrender.com";
 
 // --- Custom Notification System ---
@@ -84,10 +84,8 @@ function renderMapPoints() {
     const listContainer = document.getElementById('facility-list');
     listContainer.innerHTML = ''; 
 
-    // 1. Get current location (center of the map view)
     const currentCenter = map.getCenter();
 
-    // 2. Filter features based on accessible/baby buttons
     let displayFeatures = allToiletData.features.filter(feature => {
         if (activeFilters.accessible && feature.properties.Accessible !== true) return false;
         if (activeFilters.baby && feature.properties.BabyChange !== true) return false;
@@ -99,16 +97,13 @@ function renderMapPoints() {
         return;
     }
 
-    // 3. Calculate distance for every toilet (in meters)
     displayFeatures.forEach(feature => {
         const toiletLatLng = L.latLng(feature.geometry.coordinates[1], feature.geometry.coordinates[0]);
         feature.properties.distanceMeters = map.distance(currentCenter, toiletLatLng);
     });
 
-    // 4. Sort the list from closest to furthest
     displayFeatures.sort((a, b) => a.properties.distanceMeters - b.properties.distanceMeters);
 
-    // 5. Draw the Map Pins
     currentMapLayer = L.geoJSON({ type: "FeatureCollection", features: displayFeatures }, {
         onEachFeature: function (feature, layer) {
             const name = feature.properties.Name;
@@ -135,13 +130,10 @@ function renderMapPoints() {
             `);
 
             layer.on('popupopen', () => fetchAndDisplayRating(name, safeId));
-            
-            // Save reference to open it later via the list
             feature.layerReference = layer; 
         }
     }).addTo(map);
 
-    // 6. Draw the Sidebar List (Only take the top 5 nearest)
     const top5Nearest = displayFeatures.slice(0, 5);
     
     top5Nearest.forEach(feature => {
@@ -149,8 +141,6 @@ function renderMapPoints() {
         const accIcon = feature.properties.Accessible ? '♿' : '';
         const babyIcon = feature.properties.BabyChange ? '👶' : '';
         const sourceIcon = feature.properties.Source === 'Gov' ? '🏛️ Official' : '';
-        
-        // Convert meters to kilometers and format
         const distanceKm = (feature.properties.distanceMeters / 1000).toFixed(2);
 
         const listItem = document.createElement('div');
@@ -183,12 +173,34 @@ function triggerSearchArea() { loadDataForCurrentBounds(); }
 
 function findNearest() {
     if ("geolocation" in navigator) {
+        showToast("Locating you...", "success");
+        
         navigator.geolocation.getCurrentPosition(function(position) {
-            // This updates the map center, naturally triggering the distance recalculation next
-            map.flyTo([position.coords.latitude, position.coords.longitude], 15, { animate: true, duration: 1.5 });
+            const lat = position.coords.latitude;
+            const lng = position.coords.longitude;
+
+            map.flyTo([lat, lng], 15, { animate: true, duration: 1.5 });
+
+            if (userLocationMarker) {
+                userLocationMarker.setLatLng([lat, lng]);
+            } else {
+                const pulseIcon = L.divIcon({
+                    className: 'custom-user-marker',
+                    html: '<div class="user-location-dot"></div>',
+                    iconSize: [16, 16],
+                    iconAnchor: [8, 8]
+                });
+                userLocationMarker = L.marker([lat, lng], { icon: pulseIcon }).addTo(map);
+            }
+
             setTimeout(loadDataForCurrentBounds, 1600);
+            
+        }, function(error) {
+            showToast("Make sure location services are turned on!", "error");
         });
-    } else showToast("Geolocation is not supported by your browser.", "error");
+    } else {
+        showToast("Geolocation is not supported by your browser.", "error");
+    }
 }
 
 // --- Submit Review Modal ---

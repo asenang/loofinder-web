@@ -143,6 +143,23 @@ textarea {
 .review-card-header { display: flex; justify-content: space-between; margin-bottom: 6px; font-weight: 600; }
 .review-card-stars { color: #f59e0b; letter-spacing: 2px; }
 
+/* --- User Location Blinking Dot --- */
+.custom-user-marker { background: transparent; border: none; }
+.user-location-dot {
+    width: 16px; height: 16px; background-color: #007aff;
+    border: 2px solid white; border-radius: 50%;
+    box-shadow: 0 0 6px rgba(0,0,0,0.4); position: relative;
+}
+.user-location-dot::after {
+    content: ''; position: absolute; top: -6px; left: -6px; right: -6px; bottom: -6px;
+    border: 2px solid #007aff; border-radius: 50%;
+    animation: pulse 1.5s ease-out infinite;
+}
+@keyframes pulse {
+    0% { transform: scale(0.5); opacity: 1; }
+    100% { transform: scale(2.5); opacity: 0; }
+}
+
 /* Mobile Adjustments (Floats at the bottom over the map) */
 @media (max-width: 768px) {
     .sidebar { 
