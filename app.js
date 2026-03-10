@@ -12,7 +12,7 @@ let currentReviewFacility = "";
 let currentRating = 0;
 
 // The URL to your live Python backend
-const BACKEND_URL = "https://loofinder-api.onrender.com";
+const BACKEND_URL = "https://loofinder-api.onrender.com/";
 
 async function loadDataForCurrentBounds() {
     document.getElementById('loader').style.display = 'flex';
