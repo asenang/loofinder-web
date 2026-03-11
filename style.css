@@ -49,8 +49,8 @@ p { color: #7f8c8d; font-size: 14px; margin-bottom: 16px; }
 }
 .btn-action-small:hover { opacity: 0.8; }
 /* Restored Blue Directions Button */
-.btn-directions { background: #007aff; color: white; }
-.btn-rate { background: #f1f5f9; color: #4a5568; border: 1px solid #e2e8f0; }
+a.btn-directions, .btn-directions { background: #007aff; color: #ffffff !important; }
+button.btn-rate, .btn-rate { background: #f1f5f9; color: #4a5568 !important; border: 1px solid #e2e8f0; }
 
 /* Custom Map Pins (Restored to Blue) */
 .custom-pin { background-color: #007aff; border-radius: 50%; display: flex; justify-content: center; align-items: center; box-shadow: 0 2px 5px rgba(0,0,0,0.3); border: 2px solid white; color: white; }
