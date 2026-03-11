@@ -36,21 +36,59 @@ async function loadDataForCurrentBounds() {
     document.getElementById('btn-search-area').style.display = 'none';
     try {
         const bounds = map.getBounds();
-        const overpassQuery = `[out:json];node["amenity"="toilets"](${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()});out;`;
+        // Enhanced query to fetch more comprehensive toilet data
+        const overpassQuery = `
+            [out:json];
+            (
+                node["amenity"="toilets"](${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()});
+                way["amenity"="toilets"](${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()});
+                relation["amenity"="toilets"](${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()});
+                node["toilets"="yes"](${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()});
+                node["amenity"="public_toilet"](${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()});
+            );
+            (._;>;);
+            out center;
+        `;
         const response = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(overpassQuery)}`);
         const data = await response.json();
 
-        allToiletData.features = data.elements.map(node => ({
-            type: "Feature",
-            properties: { 
-                Name: node.tags.name || "Public Toilet", 
-                Accessible: node.tags.wheelchair === 'yes', 
-                BabyChange: node.tags.diaper === 'yes' || node.tags.changing_table === 'yes'
-            },
-            geometry: { type: "Point", coordinates: [node.lon, node.lat] }
-        }));
+        allToiletData.features = data.elements.map(element => {
+            // Handle different element types (nodes, ways, relations)
+            let lat, lon;
+            if (element.type === 'node') {
+                lat = element.lat;
+                lon = element.lon;
+            } else if (element.type === 'way' || element.type === 'relation') {
+                lat = element.center?.lat;
+                lon = element.center?.lon;
+            }
+
+            if (!lat || !lon) return null;
+
+            const tags = element.tags || {};
+            
+            return {
+                type: "Feature",
+                properties: { 
+                    Name: tags.name || tags.description || tags.operator || "Public Toilet",
+                    Accessible: tags.wheelchair === 'yes' || tags.access === 'yes',
+                    BabyChange: tags.diaper === 'yes' || tags.changing_table === 'yes' || tags.baby_friendly === 'yes',
+                    Fee: tags.fee === 'yes' ? tags.fee || 'Yes' : 'No',
+                    OpeningHours: tags.opening_hours || '',
+                    Operator: tags.operator || '',
+                    Gender: tags.gender || '',
+                    MappedBy: tags.source || '',
+                    AdditionalInfo: tags.description || tags.note || ''
+                },
+                geometry: { type: "Point", coordinates: [lon, lat] }
+            };
+        }).filter(Boolean); // Remove null entries
+        
         renderMapPoints();
-    } catch (e) { console.error(e); }
+    } catch (e) { 
+        console.error('Error fetching toilet data:', e);
+        showToast('Error loading toilet data', 'error');
+    }
     finally { document.getElementById('loader').style.display = 'none'; }
 }
 
