@@ -10,7 +10,7 @@ let activeFilters = { accessible: false, baby: false };
 let currentReviewFacility = "";
 let currentRating = 0;
 
-// Custom Map Pin (Now matches the blue theme in CSS)
+// Custom Map Pin (Matches the blue theme)
 const toiletIcon = L.divIcon({
     className: 'custom-pin',
     html: '<span class="material-symbols-outlined" style="font-size: 16px;">wc</span>',
@@ -30,66 +30,51 @@ function showToast(message, type = 'success') {
     setTimeout(() => toast.remove(), 3500);
 }
 
-// --- Data Fetching ---
+// --- Data Fetching (Comprehensive Detection) ---
 async function loadDataForCurrentBounds() {
     document.getElementById('loader').style.display = 'flex';
     document.getElementById('btn-search-area').style.display = 'none';
+    
     try {
         const bounds = map.getBounds();
-        // Enhanced query to fetch more comprehensive toilet data
+        
+        // Fetch Nodes, Ways, and Relations, returning the center point
         const overpassQuery = `
-            [out:json];
+            [out:json][timeout:25];
             (
-                node["amenity"="toilets"](${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()});
-                way["amenity"="toilets"](${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()});
-                relation["amenity"="toilets"](${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()});
-                node["toilets"="yes"](${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()});
-                node["amenity"="public_toilet"](${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()});
+              nwr["amenity"="toilets"](${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()});
             );
-            (._;>;);
             out center;
         `;
+        
         const response = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(overpassQuery)}`);
         const data = await response.json();
 
-        allToiletData.features = data.elements.map(element => {
-            // Handle different element types (nodes, ways, relations)
-            let lat, lon;
-            if (element.type === 'node') {
-                lat = element.lat;
-                lon = element.lon;
-            } else if (element.type === 'way' || element.type === 'relation') {
-                lat = element.center?.lat;
-                lon = element.center?.lon;
-            }
-
-            if (!lat || !lon) return null;
-
-            const tags = element.tags || {};
+        // Map the coordinates properly depending on if it's a point or an area
+        allToiletData.features = data.elements
+            .filter(el => el.lat || el.center)
+            .map(el => {
+                const lat = el.lat || el.center.lat;
+                const lon = el.lon || el.center.lon;
+                
+                return {
+                    type: "Feature",
+                    properties: { 
+                        Name: el.tags.name || "Public Toilet", 
+                        Accessible: el.tags.wheelchair === 'yes', 
+                        BabyChange: el.tags.diaper === 'yes' || el.tags.changing_table === 'yes'
+                    },
+                    geometry: { type: "Point", coordinates: [lon, lat] }
+                };
+            });
             
-            return {
-                type: "Feature",
-                properties: { 
-                    Name: tags.name || tags.description || tags.operator || "Public Toilet",
-                    Accessible: tags.wheelchair === 'yes' || tags.access === 'yes',
-                    BabyChange: tags.diaper === 'yes' || tags.changing_table === 'yes' || tags.baby_friendly === 'yes',
-                    Fee: tags.fee === 'yes' ? tags.fee || 'Yes' : 'No',
-                    OpeningHours: tags.opening_hours || '',
-                    Operator: tags.operator || '',
-                    Gender: tags.gender || '',
-                    MappedBy: tags.source || '',
-                    AdditionalInfo: tags.description || tags.note || ''
-                },
-                geometry: { type: "Point", coordinates: [lon, lat] }
-            };
-        }).filter(Boolean); // Remove null entries
-        
         renderMapPoints();
     } catch (e) { 
-        console.error('Error fetching toilet data:', e);
-        showToast('Error loading toilet data', 'error');
+        console.error("Overpass API Error:", e); 
+        showToast("Error finding toilets in this area.", "error");
+    } finally { 
+        document.getElementById('loader').style.display = 'none'; 
     }
-    finally { document.getElementById('loader').style.display = 'none'; }
 }
 
 // --- Map & Sidebar Rendering ---
@@ -132,7 +117,6 @@ function renderMapPoints() {
             const lng = f.geometry.coordinates[0];
             const mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=walking`;
 
-            // Popups now have the restored buttons
             l.bindPopup(`
                 <div style="font-weight:700; font-size:15px; color:#2c3e50;">${name}</div>
                 <div id="${safeId}" style="color:#7f8c8d; margin:8px 0 12px 0;">Loading rating...</div>
@@ -165,7 +149,6 @@ function renderMapPoints() {
         const listItem = document.createElement('div');
         listItem.className = 'list-item';
         
-        // Sidebar list also accurately reflects distance, Directions, and Rate
         listItem.innerHTML = `
             <div class="list-item-header">
                 <div class="list-item-title">${name}</div>
@@ -248,7 +231,7 @@ async function openReviewsList(n) {
     container.innerHTML = "Loading...";
     const res = await fetch(`${BACKEND_URL}/api/reviews/${encodeURIComponent(n)}`);
     const data = await res.json();
-    container.innerHTML = data.reviews.map(r => `<div class="review-card"><b style="color:#f59e0b;">★ ${r.rating}</b><br>${r.review_text.replace(/</g, "<").replace(/>/g, ">")}</div>`).join('') || "No text reviews.";
+    container.innerHTML = data.reviews.map(r => `<div class="review-card"><b style="color:#f59e0b;">★ ${r.rating}</b><br>${r.review_text.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</div>`).join('') || "No text reviews.";
 }
 function closeReviewsList() { document.getElementById('reviewsListModal').style.display = 'none'; }
 
