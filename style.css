@@ -94,3 +94,24 @@ textarea { width: 100%; padding: 12px; border: 1px solid #e2e8f0; border-radius:
     .sidebar { width: 90%; left: 5%; top: auto; bottom: 20px; max-height: 50vh; }
     #btn-search-area { left: 50%; }
 }
+
+/* --- Subtle Map Attribution --- */
+.leaflet-control-attribution {
+    background: transparent !important; /* Removes the harsh white box */
+    color: #a0aec0 !important;          /* Soft grey text */
+    font-size: 10px !important;
+}
+
+.leaflet-control-attribution a {
+    color: #a0aec0 !important;          /* Soft grey links */
+    text-decoration: none;
+}
+
+.leaflet-control-attribution a:hover {
+    color: #4a5568 !important;          /* Darkens slightly when hovered */
+}
+
+.leaflet-control-attribution svg {
+    fill: #a0aec0 !important;           /* Changes the Leaflet logo color to match! */
+    opacity: 0.7;
+}
