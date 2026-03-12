@@ -115,3 +115,17 @@ textarea { width: 100%; padding: 12px; border: 1px solid #e2e8f0; border-radius:
     fill: #a0aec0 !important;           /* Changes the Leaflet logo color to match! */
     opacity: 0.7;
 }
+
+/* --- Mobile Sidebar Collapse Logic --- */
+#btn-show-list {
+    display: none; position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
+    z-index: 2000; background: #007aff; color: white; border: none; padding: 12px 24px;
+    border-radius: 24px; font-weight: 600; font-size: 14px; box-shadow: 0 4px 12px rgba(0,0,0,0.2); cursor: pointer;
+}
+
+@media (max-width: 768px) {
+    .sidebar { transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+    /* Pushes the sidebar completely off the bottom of the screen */
+    .sidebar.collapsed { transform: translateY(calc(100% + 20px)); }
+    #btn-show-list.visible { display: flex; align-items: center; gap: 8px; }
+}
