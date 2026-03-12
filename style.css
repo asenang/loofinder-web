@@ -97,41 +97,58 @@ textarea { width: 100%; padding: 12px; border: 1px solid #e2e8f0; border-radius:
 /* --- Mobile Bottom Sheet Styles --- */
 .mobile-handle { 
     display: none; 
-    text-align: center; 
-    padding: 6px 0 0 0; 
+    padding: 12px 0 8px 0; 
     cursor: pointer; 
-    color: #a0aec0; 
-    margin-bottom: -4px; /* Pulls the content up tighter to the arrow */
+    justify-content: center; /* Centers the drag line */
 }
-.list-section { display: flex; flex-direction: column; overflow: hidden; }
+
+/* The sleek iOS-style pill line */
+.drag-line {
+    width: 40px;
+    height: 5px;
+    background-color: #cbd5e1;
+    border-radius: 4px;
+}
+
+.list-section { display: flex; flex-direction: column; overflow: hidden; flex: 1; }
 
 @media (max-width: 768px) {
     /* 1. The Floating Island Card */
     .sidebar { 
-        width: calc(100% - 32px); /* Leaves a 16px gap on both sides */
+        display: flex;
+        flex-direction: column;
+        width: calc(100% - 32px); 
         left: 16px; 
         top: auto; 
-        bottom: 20px; /* Floats 20px off the bottom of the screen */
-        border-radius: 20px; /* Rounded corners all the way around */
-        padding-bottom: 8px; 
-        max-height: 60vh; /* Gives the expanded list more vertical room */
+        bottom: 20px; 
+        border-radius: 20px; 
+        padding-bottom: 0; /* Let the header sit flush at the bottom */
+        max-height: 65vh; 
         transition: max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.25); /* Adds a deeper drop shadow */
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.25); 
     }
     
-    .mobile-handle { display: block; }
+    /* 2. Flexbox Reordering (The Magic Trick) */
+    .mobile-handle { display: flex; order: 1; } /* Handle stays at the top */
+    .list-section { order: 2; } /* List squeezes into the middle */
+    
+    .sidebar-top { 
+        order: 3; /* Header moves to the absolute bottom */
+        padding: 8px 16px 16px 16px; 
+        border-top: 1px solid #f1f5f9; /* Separator line above the header */
+        border-bottom: none; 
+    } 
 
-    /* 2. Condense the Top Header */
-    .sidebar-top { padding: 12px 16px; } /* Much tighter internal padding */
-    .sidebar-top h1 { font-size: 18px; margin-bottom: 2px; } /* Smaller title */
-    .sidebar-top p { display: none; } /* Hides the description entirely on mobile */
-    .filters { margin-bottom: 10px; } /* Tighter gap below the filter chips */
-    .btn-primary { padding: 10px 12px; font-size: 14px; } /* Slimmer button */
+    /* 3. Condense the Header */
+    .sidebar-top h1 { font-size: 18px; margin-bottom: 4px; } 
+    .sidebar-top p { display: none; } 
+    .filters { margin-bottom: 12px; } 
+    .btn-primary { padding: 10px 12px; font-size: 14px; } 
 
-    /* 3. Collapsed State */
-    .sidebar.collapsed { max-height: 120px; } /* Snaps down cleanly */
+    /* 4. Collapsed State */
+    .sidebar.collapsed { max-height: 150px; } /* Enough room for just handle + header */
     .sidebar.collapsed .hide-on-collapse { display: none; }
-    .sidebar.collapsed .sidebar-top { border-bottom: none; padding-bottom: 12px; }
+    .sidebar.collapsed .sidebar-top { border-top: none; } /* Hide separator when collapsed */
     
     #btn-search-area { left: 50%; top: 20px; }
 }

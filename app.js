@@ -23,23 +23,12 @@ const toiletIcon = L.divIcon({
 
 // --- Mobile Bottom Sheet Controls ---
 function toggleSidebar() {
-    const sidebar = document.querySelector('.sidebar');
-    const arrow = document.getElementById('mobile-arrow');
-    
-    if (sidebar.classList.contains('collapsed')) {
-        sidebar.classList.remove('collapsed');
-        arrow.innerText = 'keyboard_arrow_down';
-    } else {
-        sidebar.classList.add('collapsed');
-        arrow.innerText = 'keyboard_arrow_up';
-    }
+    document.querySelector('.sidebar').classList.toggle('collapsed');
 }
 
 function collapseSidebar() {
     if (window.innerWidth <= 768) {
         document.querySelector('.sidebar').classList.add('collapsed');
-        const arrow = document.getElementById('mobile-arrow');
-        if (arrow) arrow.innerText = 'keyboard_arrow_up';
     }
 }
 
