@@ -3,7 +3,7 @@ body, html { height: 100%; background-color: #f4f7f6; overflow: hidden; }
 
 #map { position: absolute; top: 0; left: 0; height: 100%; width: 100%; z-index: 1; }
 
-/* Sidebar Layout (Desktop) */
+/* --- Sidebar Layout (Desktop) --- */
 .sidebar {
     position: absolute; top: 20px; left: 20px; width: 340px; max-height: calc(100vh - 40px);
     background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px);
@@ -18,9 +18,9 @@ p { color: #7f8c8d; font-size: 14px; margin-bottom: 16px; }
 /* Filter Chips */
 .filters { display: flex; gap: 8px; margin-bottom: 20px; }
 .filter-chip { padding: 8px 14px; background: #e2e8f0; color: #4a5568; border-radius: 20px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s; border: 1px solid transparent; }
-.filter-chip.active { background: #16a085; color: white; }
+.filter-chip.active { background: #007aff; color: white; }
 
-/* Refined List Item Styles */
+/* --- Refined List Item Styles --- */
 .list-header { padding: 16px 24px 8px; font-weight: 700; color: #7f8c8d; font-size: 12px; text-transform: uppercase; }
 .facility-list { flex: 1; overflow-y: auto; padding: 0 12px 12px; }
 
@@ -50,19 +50,19 @@ p { color: #7f8c8d; font-size: 14px; margin-bottom: 16px; }
 a.btn-directions, .btn-directions { background: #007aff; color: #ffffff !important; }
 button.btn-rate, .btn-rate { background: #f1f5f9; color: #4a5568 !important; border: 1px solid #e2e8f0; }
 
-/* Custom Map Pins (Blue) */
+/* --- Custom Map Pins (Blue) --- */
 .custom-pin { background-color: #007aff; border-radius: 50%; display: flex; justify-content: center; align-items: center; box-shadow: 0 2px 5px rgba(0,0,0,0.3); border: 2px solid white; color: white; }
 .custom-user-marker { background: transparent; border: none; }
 .user-location-dot { width: 14px; height: 14px; background-color: #007aff; border: 2px solid white; border-radius: 50%; box-shadow: 0 0 5px rgba(0,0,0,0.4); }
 
-/* Toast Notifications */
+/* --- Toast Notifications --- */
 .toast-container { position: absolute; top: 20px; left: 50%; transform: translateX(-50%); z-index: 4000; width: 90%; max-width: 350px; pointer-events: none; }
 .toast { background: white; color: #2c3e50; padding: 14px 20px; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.15); font-weight: 600; margin-bottom: 10px; transition: opacity 0.4s; display: flex; align-items: center; gap: 8px; }
 .toast.hiding { opacity: 0; }
 .toast.success { border-left: 4px solid #10b981; }
 .toast.error { border-left: 4px solid #ef4444; }
 
-/* Standard UI Elements */
+/* --- Standard UI Elements --- */
 .btn-primary { background: #007aff; color: white; border: none; padding: 12px; border-radius: 8px; font-weight: 600; cursor: pointer; width: 100%; transition: 0.2s; display: flex; justify-content: center; align-items: center; gap: 8px; }
 .btn-primary:hover { background: #005ce6; }
 #btn-search-area {
@@ -73,7 +73,7 @@ button.btn-rate, .btn-rate { background: #f1f5f9; color: #4a5568 !important; bor
 .spinner { width: 20px; height: 20px; border: 3px solid #e2e8f0; border-top: 3px solid #007aff; border-radius: 50%; animation: spin 1s linear infinite; }
 @keyframes spin { 100% { transform: rotate(360deg); } }
 
-/* Modals & Reviews */
+/* --- Modals & Reviews --- */
 .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.4); z-index: 3000; justify-content: center; align-items: center; }
 .modal-content { background: white; padding: 24px; border-radius: 16px; width: 90%; max-width: 400px; box-shadow: 0 10px 40px rgba(0,0,0,0.2); }
 .modal-title { font-size: 18px; font-weight: 700; margin-bottom: 16px; color: #2c3e50; }
@@ -88,7 +88,7 @@ textarea { width: 100%; padding: 12px; border: 1px solid #e2e8f0; border-radius:
 .reviews-list-container { max-height: 300px; overflow-y: auto; margin-bottom: 16px; }
 .clickable-rating { cursor: pointer; text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 3px; font-weight: 600; display: flex; align-items: center; gap: 4px; }
 
-/* Subtle Map Attribution */
+/* --- Subtle Map Attribution --- */
 .leaflet-control-attribution { background: transparent !important; color: #a0aec0 !important; font-size: 10px !important; }
 .leaflet-control-attribution a { color: #a0aec0 !important; text-decoration: none; }
 .leaflet-control-attribution a:hover { color: #4a5568 !important; }
@@ -99,7 +99,8 @@ textarea { width: 100%; padding: 12px; border: 1px solid #e2e8f0; border-radius:
     display: none; 
     padding: 12px 0 8px 0; 
     cursor: pointer; 
-    justify-content: center; /* Centers the drag line */
+    justify-content: center; 
+    touch-action: none; /* Prevents Safari bounce when dragging */
 }
 
 /* The sleek iOS-style pill line */
@@ -124,7 +125,7 @@ textarea { width: 100%; padding: 12px; border: 1px solid #e2e8f0; border-radius:
         border-radius: 20px; 
         padding-bottom: 0; /* Let the header sit flush at the bottom */
         max-height: 65vh; 
-        transition: max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        transition: max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         box-shadow: 0 10px 40px rgba(0, 0, 0, 0.25); 
     }
     

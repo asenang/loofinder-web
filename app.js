@@ -274,3 +274,52 @@ async function openReviewsList(facilityId, name) {
 function closeReviewsList() { document.getElementById('reviewsListModal').style.display = 'none'; }
 
 map.whenReady(() => findNearest());
+
+// --- Mobile Drag-to-Expand Logic ---
+const sidebarElement = document.querySelector('.sidebar');
+const handleElement = document.querySelector('.mobile-handle');
+
+let startY = 0;
+let currentY = 0;
+let isDragging = false;
+
+handleElement.addEventListener('touchstart', (e) => {
+    startY = e.touches[0].clientY;
+    currentY = startY;
+    isDragging = true;
+    
+    // Disable the smooth CSS transition so it sticks exactly to your finger
+    sidebarElement.style.transition = 'none'; 
+}, { passive: true });
+
+handleElement.addEventListener('touchmove', (e) => {
+    if (!isDragging) return;
+    currentY = e.touches[0].clientY;
+    const deltaY = currentY - startY;
+
+    // If collapsed, only let them drag UP (negative delta)
+    // If expanded, only let them drag DOWN (positive delta)
+    if (sidebarElement.classList.contains('collapsed') && deltaY < 0) {
+        sidebarElement.style.transform = `translateY(${deltaY}px)`;
+    } else if (!sidebarElement.classList.contains('collapsed') && deltaY > 0) {
+        sidebarElement.style.transform = `translateY(${deltaY}px)`;
+    }
+}, { passive: true });
+
+handleElement.addEventListener('touchend', () => {
+    if (!isDragging) return;
+    isDragging = false;
+    
+    // Restore the smooth CSS animation and clear the manual drag position
+    sidebarElement.style.transition = ''; 
+    sidebarElement.style.transform = ''; 
+    
+    const deltaY = currentY - startY;
+    
+    // If they dragged more than 50 pixels, snap it to the new state
+    if (deltaY < -50 && sidebarElement.classList.contains('collapsed')) {
+        sidebarElement.classList.remove('collapsed');
+    } else if (deltaY > 50 && !sidebarElement.classList.contains('collapsed')) {
+        sidebarElement.classList.add('collapsed');
+    }
+});
