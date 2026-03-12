@@ -8,12 +8,12 @@ let userLocationMarker = null;
 let currentMapLayer = null;
 let activeFilters = { accessible: false, baby: false };
 
-// Track unique ID alongside the name to prevent review collisions
+// Track unique ID alongside the name
 let currentReviewFacilityId = "";
 let currentReviewFacilityName = "";
 let currentRating = 0;
 
-// Custom Map Pin (Matches the blue theme)
+// Custom Map Pin
 const toiletIcon = L.divIcon({
     className: 'custom-pin',
     html: '<span class="material-symbols-outlined" style="font-size: 16px;">wc</span>',
@@ -21,21 +21,30 @@ const toiletIcon = L.divIcon({
     iconAnchor: [14, 14]
 });
 
-// --- Mobile Sidebar Controls ---
-function showSidebar() {
-    document.querySelector('.sidebar').classList.remove('collapsed');
-    document.getElementById('btn-show-list').classList.remove('visible');
-}
-
-function hideSidebar() {
-    if (window.innerWidth <= 768) {
-        document.querySelector('.sidebar').classList.add('collapsed');
-        document.getElementById('btn-show-list').classList.add('visible');
+// --- Mobile Bottom Sheet Controls ---
+function toggleSidebar() {
+    const sidebar = document.querySelector('.sidebar');
+    const arrow = document.getElementById('mobile-arrow');
+    
+    if (sidebar.classList.contains('collapsed')) {
+        sidebar.classList.remove('collapsed');
+        arrow.innerText = 'keyboard_arrow_down';
+    } else {
+        sidebar.classList.add('collapsed');
+        arrow.innerText = 'keyboard_arrow_up';
     }
 }
 
-// Hide sidebar when the user drags the map
-map.on('dragstart', hideSidebar);
+function collapseSidebar() {
+    if (window.innerWidth <= 768) {
+        document.querySelector('.sidebar').classList.add('collapsed');
+        const arrow = document.getElementById('mobile-arrow');
+        if (arrow) arrow.innerText = 'keyboard_arrow_up';
+    }
+}
+
+// Collapse the sheet when the user drags the map
+map.on('dragstart', collapseSidebar);
 
 // --- Notification System ---
 function showToast(message, type = 'success') {
@@ -69,7 +78,6 @@ async function loadDataForCurrentBounds() {
         const response = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(overpassQuery)}`);
         const data = await response.json();
 
-        // Map the coordinates properly depending on if it's a point or an area
         allToiletData.features = data.elements
             .filter(el => el.lat || el.center)
             .map(el => {
@@ -103,7 +111,6 @@ function renderMapPoints() {
     const listContainer = document.getElementById('facility-list');
     listContainer.innerHTML = '';
     
-    // Accurate distance tracking from the user's actual dot
     const referencePoint = userLocationMarker ? userLocationMarker.getLatLng() : map.getCenter();
 
     let displayFeatures = allToiletData.features.filter(f => {
@@ -154,7 +161,7 @@ function renderMapPoints() {
             
             l.on('popupopen', () => {
                 fetchAndDisplayRating(facilityId, name, safeId);
-                hideSidebar(); // Hide the list so the popup is completely visible!
+                collapseSidebar(); // Snaps the sheet down so you can see the popup
             });
             f.layerRef = l;
         }
@@ -201,7 +208,6 @@ function renderMapPoints() {
     });
 }
 
-// Fetch using ID, but pass Name to the modal for display
 async function fetchAndDisplayRating(facilityId, name, htmlId) {
     const el = document.getElementById(htmlId);
     if (!el) return;
@@ -237,7 +243,6 @@ function triggerSearchArea() { loadDataForCurrentBounds(); }
 // --- Modals & Filters ---
 function toggleFilter(t) { activeFilters[t] = !activeFilters[t]; document.getElementById('chip-'+t).classList.toggle('active'); renderMapPoints(); }
 
-// Modal now takes the unique ID and the Name
 function openModal(id, name) { 
     currentReviewFacilityId = id; 
     currentReviewFacilityName = name;

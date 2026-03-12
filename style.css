@@ -3,7 +3,7 @@ body, html { height: 100%; background-color: #f4f7f6; overflow: hidden; }
 
 #map { position: absolute; top: 0; left: 0; height: 100%; width: 100%; z-index: 1; }
 
-/* Sidebar Layout */
+/* Sidebar Layout (Desktop) */
 .sidebar {
     position: absolute; top: 20px; left: 20px; width: 340px; max-height: calc(100vh - 40px);
     background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px);
@@ -20,7 +20,7 @@ p { color: #7f8c8d; font-size: 14px; margin-bottom: 16px; }
 .filter-chip { padding: 8px 14px; background: #e2e8f0; color: #4a5568; border-radius: 20px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s; border: 1px solid transparent; }
 .filter-chip.active { background: #16a085; color: white; }
 
-/* --- Refined List Item Styles --- */
+/* Refined List Item Styles */
 .list-header { padding: 16px 24px 8px; font-weight: 700; color: #7f8c8d; font-size: 12px; text-transform: uppercase; }
 .facility-list { flex: 1; overflow-y: auto; padding: 0 12px 12px; }
 
@@ -33,11 +33,8 @@ p { color: #7f8c8d; font-size: 14px; margin-bottom: 16px; }
 .list-item-header { display: flex; justify-content: space-between; align-items: flex-start; }
 .list-item-title { font-weight: 700; color: #2c3e50; font-size: 15px; }
 
-/* Restored Blue Distance Badge */
-.distance-badge {
-    font-size: 11px; font-weight: 700; color: #007aff;
-    background: #eef2ff; padding: 4px 8px; border-radius: 20px; white-space: nowrap;
-}
+/* Blue Distance Badge */
+.distance-badge { font-size: 11px; font-weight: 700; color: #007aff; background: #eef2ff; padding: 4px 8px; border-radius: 20px; white-space: nowrap; }
 
 .list-item-features { font-size: 13px; color: #7f8c8d; display: flex; gap: 8px; align-items: center; }
 .list-item-actions { display: flex; gap: 8px; margin-top: 4px; }
@@ -48,11 +45,12 @@ p { color: #7f8c8d; font-size: 14px; margin-bottom: 16px; }
     display: flex; align-items: center; justify-content: center; gap: 4px;
 }
 .btn-action-small:hover { opacity: 0.8; }
-/* Restored Blue Directions Button */
+
+/* Blue Directions Button (Forced White Text) */
 a.btn-directions, .btn-directions { background: #007aff; color: #ffffff !important; }
 button.btn-rate, .btn-rate { background: #f1f5f9; color: #4a5568 !important; border: 1px solid #e2e8f0; }
 
-/* Custom Map Pins (Restored to Blue) */
+/* Custom Map Pins (Blue) */
 .custom-pin { background-color: #007aff; border-radius: 50%; display: flex; justify-content: center; align-items: center; box-shadow: 0 2px 5px rgba(0,0,0,0.3); border: 2px solid white; color: white; }
 .custom-user-marker { background: transparent; border: none; }
 .user-location-dot { width: 14px; height: 14px; background-color: #007aff; border: 2px solid white; border-radius: 50%; box-shadow: 0 0 5px rgba(0,0,0,0.4); }
@@ -81,7 +79,7 @@ button.btn-rate, .btn-rate { background: #f1f5f9; color: #4a5568 !important; bor
 .modal-title { font-size: 18px; font-weight: 700; margin-bottom: 16px; color: #2c3e50; }
 .stars { display: flex; flex-direction: row-reverse; justify-content: flex-end; gap: 8px; margin-bottom: 16px; }
 .star { font-size: 28px; color: #cbd5e1; cursor: pointer; transition: 0.2s; }
-.star.selected, .star.selected ~ .star { color: #f59e0b; } /* Restored Gold Stars */
+.star.selected, .star.selected ~ .star { color: #f59e0b; }
 textarea { width: 100%; padding: 12px; border: 1px solid #e2e8f0; border-radius: 8px; margin-bottom: 16px; resize: none; height: 100px; }
 .modal-actions { display: flex; gap: 10px; }
 .btn-cancel { background: #e2e8f0; color: #4a5568; border: none; padding: 12px; border-radius: 8px; font-weight: 600; cursor: pointer; flex: 1; }
@@ -90,42 +88,28 @@ textarea { width: 100%; padding: 12px; border: 1px solid #e2e8f0; border-radius:
 .reviews-list-container { max-height: 300px; overflow-y: auto; margin-bottom: 16px; }
 .clickable-rating { cursor: pointer; text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 3px; font-weight: 600; display: flex; align-items: center; gap: 4px; }
 
+/* Subtle Map Attribution */
+.leaflet-control-attribution { background: transparent !important; color: #a0aec0 !important; font-size: 10px !important; }
+.leaflet-control-attribution a { color: #a0aec0 !important; text-decoration: none; }
+.leaflet-control-attribution a:hover { color: #4a5568 !important; }
+.leaflet-control-attribution svg { fill: #a0aec0 !important; opacity: 0.7; }
+
+/* --- Mobile Bottom Sheet Styles --- */
+.mobile-handle { display: none; text-align: center; padding: 8px 0 0 0; cursor: pointer; color: #a0aec0; }
+.list-section { display: flex; flex-direction: column; overflow: hidden; }
+
 @media (max-width: 768px) {
-    .sidebar { width: 90%; left: 5%; top: auto; bottom: 20px; max-height: 50vh; }
+    .sidebar { 
+        width: 100%; left: 0; top: auto; bottom: 0; border-radius: 20px 20px 0 0; 
+        padding-bottom: 20px; max-height: 45vh; 
+        transition: max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.15);
+    }
+    
+    .mobile-handle { display: block; }
+    .sidebar.collapsed { max-height: 140px; }
+    .sidebar.collapsed .hide-on-collapse { display: none; }
+    .sidebar.collapsed .sidebar-top { padding-top: 0; border-bottom: none; }
+    
     #btn-search-area { left: 50%; }
-}
-
-/* --- Subtle Map Attribution --- */
-.leaflet-control-attribution {
-    background: transparent !important; /* Removes the harsh white box */
-    color: #a0aec0 !important;          /* Soft grey text */
-    font-size: 10px !important;
-}
-
-.leaflet-control-attribution a {
-    color: #a0aec0 !important;          /* Soft grey links */
-    text-decoration: none;
-}
-
-.leaflet-control-attribution a:hover {
-    color: #4a5568 !important;          /* Darkens slightly when hovered */
-}
-
-.leaflet-control-attribution svg {
-    fill: #a0aec0 !important;           /* Changes the Leaflet logo color to match! */
-    opacity: 0.7;
-}
-
-/* --- Mobile Sidebar Collapse Logic --- */
-#btn-show-list {
-    display: none; position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
-    z-index: 2000; background: #007aff; color: white; border: none; padding: 12px 24px;
-    border-radius: 24px; font-weight: 600; font-size: 14px; box-shadow: 0 4px 12px rgba(0,0,0,0.2); cursor: pointer;
-}
-
-@media (max-width: 768px) {
-    .sidebar { transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
-    /* Pushes the sidebar completely off the bottom of the screen */
-    .sidebar.collapsed { transform: translateY(calc(100% + 20px)); }
-    #btn-show-list.visible { display: flex; align-items: center; gap: 8px; }
 }
