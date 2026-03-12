@@ -7,10 +7,12 @@ let ratingCache = {};
 let userLocationMarker = null;
 let currentMapLayer = null;
 let activeFilters = { accessible: false, baby: false };
-let currentReviewFacility = "";
+
+// We now track the unique ID alongside the name
+let currentReviewFacilityId = "";
+let currentReviewFacilityName = "";
 let currentRating = 0;
 
-// Custom Map Pin (Matches the blue theme)
 const toiletIcon = L.divIcon({
     className: 'custom-pin',
     html: '<span class="material-symbols-outlined" style="font-size: 16px;">wc</span>',
@@ -18,7 +20,6 @@ const toiletIcon = L.divIcon({
     iconAnchor: [14, 14]
 });
 
-// --- Notification System ---
 function showToast(message, type = 'success') {
     const container = document.getElementById('toast-container');
     const toast = document.createElement('div');
@@ -30,27 +31,21 @@ function showToast(message, type = 'success') {
     setTimeout(() => toast.remove(), 3500);
 }
 
-// --- Data Fetching (Comprehensive Detection) ---
 async function loadDataForCurrentBounds() {
     document.getElementById('loader').style.display = 'flex';
     document.getElementById('btn-search-area').style.display = 'none';
     
     try {
         const bounds = map.getBounds();
-        
-        // Fetch Nodes, Ways, and Relations, returning the center point
         const overpassQuery = `
             [out:json][timeout:25];
-            (
-              nwr["amenity"="toilets"](${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()});
-            );
+            (nwr["amenity"="toilets"](${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()}););
             out center;
         `;
         
         const response = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(overpassQuery)}`);
         const data = await response.json();
 
-        // Map the coordinates properly depending on if it's a point or an area
         allToiletData.features = data.elements
             .filter(el => el.lat || el.center)
             .map(el => {
@@ -60,6 +55,7 @@ async function loadDataForCurrentBounds() {
                 return {
                     type: "Feature",
                     properties: { 
+                        id: el.id, // THE FIX: Grab the unique OSM ID
                         Name: el.tags.name || "Public Toilet", 
                         Accessible: el.tags.wheelchair === 'yes', 
                         BabyChange: el.tags.diaper === 'yes' || el.tags.changing_table === 'yes'
@@ -77,13 +73,11 @@ async function loadDataForCurrentBounds() {
     }
 }
 
-// --- Map & Sidebar Rendering ---
 function renderMapPoints() {
     if (currentMapLayer) map.removeLayer(currentMapLayer);
     const listContainer = document.getElementById('facility-list');
     listContainer.innerHTML = '';
     
-    // Accurate distance tracking from the user's actual dot
     const referencePoint = userLocationMarker ? userLocationMarker.getLatLng() : map.getCenter();
 
     let displayFeatures = allToiletData.features.filter(f => {
@@ -97,10 +91,11 @@ function renderMapPoints() {
         const lng = f.geometry.coordinates[0];
         f.properties.dist = map.distance(referencePoint, L.latLng(lat, lng));
         
-        // Instant Pre-fetch Cache
-        if (!ratingCache[f.properties.Name]) {
-            fetch(`${BACKEND_URL}/api/reviews/${encodeURIComponent(f.properties.Name)}`)
-                .then(r => r.json()).then(d => ratingCache[f.properties.Name] = d.reviews);
+        // Cache reviews using the unique ID
+        const facilityId = f.properties.id;
+        if (!ratingCache[facilityId]) {
+            fetch(`${BACKEND_URL}/api/reviews/${facilityId}`)
+                .then(r => r.json()).then(d => ratingCache[facilityId] = d.reviews);
         }
     });
 
@@ -112,7 +107,8 @@ function renderMapPoints() {
         },
         onEachFeature: (f, l) => {
             const name = f.properties.Name;
-            const safeId = "rt-" + name.replace(/[^a-z0-9]/gi, '');
+            const facilityId = f.properties.id;
+            const safeId = "rt-" + facilityId; 
             const lat = f.geometry.coordinates[1];
             const lng = f.geometry.coordinates[0];
             const mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=walking`;
@@ -124,12 +120,12 @@ function renderMapPoints() {
                     <a href="${mapsUrl}" target="_blank" class="btn-action-small btn-directions" style="flex:1;">
                         <span class="material-symbols-outlined" style="font-size: 16px;">directions</span> Directions
                     </a>
-                    <button class="btn-action-small btn-rate" style="flex:1;" onclick="openModal('${name.replace(/'/g, "\\'")}')">
+                    <button class="btn-action-small btn-rate" style="flex:1;" onclick="openModal('${facilityId}', '${name.replace(/'/g, "\\'")}')">
                         <span class="material-symbols-outlined" style="font-size: 16px;">star</span> Rate
                     </button>
                 </div>
             `);
-            l.on('popupopen', () => fetchAndDisplayRating(name, safeId));
+            l.on('popupopen', () => fetchAndDisplayRating(facilityId, name, safeId));
             f.layerRef = l;
         }
     }).addTo(map);
@@ -138,6 +134,7 @@ function renderMapPoints() {
     
     top5Nearest.forEach(feature => {
         const name = feature.properties.Name;
+        const facilityId = feature.properties.id;
         const accIcon = feature.properties.Accessible ? '<span class="material-symbols-outlined" title="Accessible" style="font-size:16px;">accessible</span>' : '';
         const babyIcon = feature.properties.BabyChange ? '<span class="material-symbols-outlined" title="Baby Change" style="font-size:16px;">baby_changing_station</span>' : '';
         const distanceKm = (feature.properties.dist / 1000).toFixed(2);
@@ -159,7 +156,7 @@ function renderMapPoints() {
                 <a href="${mapsUrl}" target="_blank" class="btn-action-small btn-directions" onclick="event.stopPropagation();">
                     <span class="material-symbols-outlined" style="font-size: 16px;">directions</span> Directions
                 </a>
-                <button class="btn-action-small btn-rate" onclick="event.stopPropagation(); openModal('${name.replace(/'/g, "\\'")}')">
+                <button class="btn-action-small btn-rate" onclick="event.stopPropagation(); openModal('${facilityId}', '${name.replace(/'/g, "\\'")}')">
                     <span class="material-symbols-outlined" style="font-size: 16px;">star</span> Rate
                 </button>
             </div>
@@ -175,13 +172,14 @@ function renderMapPoints() {
     });
 }
 
-async function fetchAndDisplayRating(name, id) {
-    const el = document.getElementById(id);
+// Fetch using ID, but pass Name to the modal for display
+async function fetchAndDisplayRating(facilityId, name, htmlId) {
+    const el = document.getElementById(htmlId);
     if (!el) return;
-    const reviews = ratingCache[name] || [];
+    const reviews = ratingCache[facilityId] || [];
     if (reviews.length > 0) {
         const avg = (reviews.reduce((s, r) => s + r.rating, 0) / reviews.length).toFixed(1);
-        el.innerHTML = `<span class="clickable-rating" onclick="openReviewsList('${name.replace(/'/g, "\\'")}')">
+        el.innerHTML = `<span class="clickable-rating" onclick="openReviewsList('${facilityId}', '${name.replace(/'/g, "\\'")}')">
             <span class="material-symbols-outlined" style="font-size:16px; color:#f59e0b;">star</span> ${avg} (${reviews.length})
         </span>`;
     } else { 
@@ -189,7 +187,6 @@ async function fetchAndDisplayRating(name, id) {
     }
 }
 
-// --- GPS Logic ---
 function findNearest() {
     if (!navigator.geolocation) return;
     navigator.geolocation.getCurrentPosition(pos => {
@@ -207,9 +204,18 @@ function findNearest() {
 map.on('moveend', () => { document.getElementById('btn-search-area').style.display = 'block'; });
 function triggerSearchArea() { loadDataForCurrentBounds(); }
 
-// --- Modals & Filters ---
 function toggleFilter(t) { activeFilters[t] = !activeFilters[t]; document.getElementById('chip-'+t).classList.toggle('active'); renderMapPoints(); }
-function openModal(n) { currentReviewFacility = n; document.getElementById('modalFacilityName').innerText = n; document.getElementById('reviewModal').style.display = 'flex'; currentRating = 0; updateStarsUI(); }
+
+// Modal now takes the unique ID and the Name
+function openModal(id, name) { 
+    currentReviewFacilityId = id; 
+    currentReviewFacilityName = name;
+    document.getElementById('modalFacilityName').innerText = name; 
+    document.getElementById('reviewModal').style.display = 'flex'; 
+    currentRating = 0; 
+    updateStarsUI(); 
+}
+
 function closeModal() { document.getElementById('reviewModal').style.display = 'none'; }
 function setRating(r) { currentRating = r; updateStarsUI(); }
 function updateStarsUI() { document.querySelectorAll('.star').forEach(s => s.classList.toggle('selected', parseInt(s.dataset.value) <= currentRating)); }
@@ -219,19 +225,27 @@ async function submitReview() {
     try {
         const res = await fetch(`${BACKEND_URL}/api/reviews`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ facility_name: currentReviewFacility, rating: currentRating, review_text: document.getElementById('reviewText').value })
+            // Submit the ID as the facility_name to ensure it is 100% unique
+            body: JSON.stringify({ facility_name: currentReviewFacilityId.toString(), rating: currentRating, review_text: document.getElementById('reviewText').value })
         });
-        if (res.ok) { showToast("Review saved!", "success"); closeModal(); delete ratingCache[currentReviewFacility]; loadDataForCurrentBounds(); }
+        if (res.ok) { 
+            showToast("Review saved!", "success"); 
+            closeModal(); 
+            delete ratingCache[currentReviewFacilityId]; 
+            loadDataForCurrentBounds(); 
+        }
     } catch (e) { showToast("Error connecting.", "error"); }
 }
 
-async function openReviewsList(n) {
+async function openReviewsList(facilityId, name) {
     document.getElementById('reviewsListModal').style.display = 'flex';
+    document.getElementById('listModalFacilityName').innerText = name + " Reviews";
     const container = document.getElementById('reviewsContainer');
     container.innerHTML = "Loading...";
-    const res = await fetch(`${BACKEND_URL}/api/reviews/${encodeURIComponent(n)}`);
+    
+    const res = await fetch(`${BACKEND_URL}/api/reviews/${facilityId}`);
     const data = await res.json();
-    container.innerHTML = data.reviews.map(r => `<div class="review-card"><b style="color:#f59e0b;">★ ${r.rating}</b><br>${r.review_text.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</div>`).join('') || "No text reviews.";
+    container.innerHTML = data.reviews.map(r => `<div class="review-card"><b style="color:#f59e0b;">★ ${r.rating}</b><br>${r.review_text.replace(/</g, "<").replace(/>/g, ">")}</div>`).join('') || "No text reviews.";
 }
 function closeReviewsList() { document.getElementById('reviewsListModal').style.display = 'none'; }
 
