@@ -141,7 +141,7 @@ textarea { width: 100%; padding: 12px; border: 1px solid #e2e8f0; border-radius:
     } 
 
     /* 3. Condense the Header */
-    .sidebar-top h1 { font-size: 18px; margin-bottom: 4px; } 
+    .sidebar-top h1 { font-size: 18px; margin-bottom: 12px; } 
     .sidebar-top p { display: none; } 
     .filters { margin-bottom: 12px; } 
     .btn-primary { padding: 10px 12px; font-size: 14px; } 
