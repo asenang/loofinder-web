@@ -281,11 +281,14 @@ const handleElement = document.querySelector('.mobile-handle');
 
 let startY = 0;
 let currentY = 0;
+let startHeight = 0;
 let isDragging = false;
 
 handleElement.addEventListener('touchstart', (e) => {
     startY = e.touches[0].clientY;
     currentY = startY;
+    // Measure how tall the card is before we start dragging
+    startHeight = sidebarElement.getBoundingClientRect().height;
     isDragging = true;
     
     // Disable the smooth CSS transition so it sticks exactly to your finger
@@ -297,29 +300,32 @@ handleElement.addEventListener('touchmove', (e) => {
     currentY = e.touches[0].clientY;
     const deltaY = currentY - startY;
 
-    // If collapsed, only let them drag UP (negative delta)
-    // If expanded, only let them drag DOWN (positive delta)
-    if (sidebarElement.classList.contains('collapsed') && deltaY < 0) {
-        sidebarElement.style.transform = `translateY(${deltaY}px)`;
-    } else if (!sidebarElement.classList.contains('collapsed') && deltaY > 0) {
-        sidebarElement.style.transform = `translateY(${deltaY}px)`;
-    }
+    // Because the card is anchored to the bottom, dragging UP (negative delta) 
+    // means we need to INCREASE the height of the card.
+    let newHeight = startHeight - deltaY;
+    
+    // Stop the card from stretching too high or crushing too low while dragging
+    if (newHeight < 150) newHeight = 150; 
+    if (newHeight > window.innerHeight * 0.65) newHeight = window.innerHeight * 0.65;
+
+    // Apply the exact height dynamically
+    sidebarElement.style.maxHeight = `${newHeight}px`;
 }, { passive: true });
 
 handleElement.addEventListener('touchend', () => {
     if (!isDragging) return;
     isDragging = false;
     
-    // Restore the smooth CSS animation and clear the manual drag position
+    // Let go of the manual inline styles so your CSS classes can take over again
     sidebarElement.style.transition = ''; 
-    sidebarElement.style.transform = ''; 
+    sidebarElement.style.maxHeight = ''; 
     
     const deltaY = currentY - startY;
     
-    // If they dragged more than 50 pixels, snap it to the new state
-    if (deltaY < -50 && sidebarElement.classList.contains('collapsed')) {
-        sidebarElement.classList.remove('collapsed');
-    } else if (deltaY > 50 && !sidebarElement.classList.contains('collapsed')) {
-        sidebarElement.classList.add('collapsed');
+    // If they dragged more than 40 pixels, snap it to the new state
+    if (deltaY < -40) {
+        sidebarElement.classList.remove('collapsed'); // Snap open
+    } else if (deltaY > 40) {
+        sidebarElement.classList.add('collapsed'); // Snap closed
     }
 });
