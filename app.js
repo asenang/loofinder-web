@@ -200,14 +200,20 @@ function renderMapPoints() {
 async function fetchAndDisplayRating(facilityId, name, htmlId) {
     const el = document.getElementById(htmlId);
     if (!el) return;
-    const reviews = ratingCache[facilityId] || [];
-    if (reviews.length > 0) {
-        const avg = (reviews.reduce((s, r) => s + r.rating, 0) / reviews.length).toFixed(1);
-        el.innerHTML = `<span class="clickable-rating" onclick="openReviewsList('${facilityId}', '${name.replace(/'/g, "\\'")}')">
-            <span class="material-symbols-outlined" style="font-size:16px; color:#f59e0b;">star</span> ${avg} (${reviews.length})
-        </span>`;
-    } else { 
-        el.innerHTML = `<span style="font-size:13px; font-weight:600;"><span class="material-symbols-outlined" style="font-size:14px; vertical-align:middle;">star_outline</span> No reviews yet</span>`; 
+    
+    try {
+        const reviews = ratingCache[facilityId] || [];
+        if (reviews.length > 0) {
+            const avg = (reviews.reduce((s, r) => s + r.rating, 0) / reviews.length).toFixed(1);
+            el.innerHTML = `<span class="clickable-rating" onclick="openReviewsList('${facilityId}', '${name.replace(/'/g, "\\'")}')">
+                <span class="material-symbols-outlined" style="font-size:16px; color:#f59e0b;">star</span> ${avg} (${reviews.length})
+            </span>`;
+        } else { 
+            el.innerHTML = `<span style="font-size:13px; font-weight:600;"><span class="material-symbols-outlined" style="font-size:14px; vertical-align:middle;">star_outline</span> No reviews yet</span>`; 
+        }
+    } catch (error) {
+        console.error("Error displaying rating:", error);
+        el.innerHTML = `<span style="font-size:13px; color:#e74c3c;"><span class="material-symbols-outlined" style="font-size:14px; vertical-align:middle;">error</span> Rating unavailable</span>`;
     }
 }
 
