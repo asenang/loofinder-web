@@ -117,7 +117,20 @@ function renderMapPoints() {
         const facilityId = f.properties.id;
         if (!ratingCache[facilityId]) {
             fetch(`${BACKEND_URL}/api/reviews/${facilityId}`)
-                .then(r => r.json()).then(d => ratingCache[facilityId] = d.reviews);
+                .then(r => r.json()).then(d => {
+                    ratingCache[facilityId] = d.reviews;
+                    // Update display if popup is already open
+                    const safeId = "rt-" + facilityId;
+                    const el = document.getElementById(safeId);
+                    if (el && d.reviews.length > 0) {
+                        const avg = (d.reviews.reduce((s, r) => s + r.rating, 0) / d.reviews.length).toFixed(1);
+                        el.innerHTML = `<span class="clickable-rating" onclick="openReviewsList('${facilityId}', '${f.properties.Name.replace(/'/g, "\\'")}')">
+                            <span class="material-symbols-outlined" style="font-size:16px; color:#f59e0b;">star</span> ${avg} (${d.reviews.length})
+                        </span>`;
+                    } else if (el) {
+                        el.innerHTML = `<span style="font-size:13px; font-weight:600;"><span class="material-symbols-outlined" style="font-size:14px; vertical-align:middle;">star_outline</span> No reviews yet</span>`;
+                    }
+                });
         }
     });
 
@@ -202,7 +215,14 @@ async function fetchAndDisplayRating(facilityId, name, htmlId) {
     if (!el) return;
     
     try {
-        const reviews = ratingCache[facilityId] || [];
+        // Always fetch fresh data to avoid stale cache issues
+        const response = await fetch(`${BACKEND_URL}/api/reviews/${facilityId}`);
+        const data = await response.json();
+        const reviews = data.reviews || [];
+        
+        // Update cache
+        ratingCache[facilityId] = reviews;
+        
         if (reviews.length > 0) {
             const avg = (reviews.reduce((s, r) => s + r.rating, 0) / reviews.length).toFixed(1);
             el.innerHTML = `<span class="clickable-rating" onclick="openReviewsList('${facilityId}', '${name.replace(/'/g, "\\'")}')">
