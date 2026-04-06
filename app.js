@@ -2,11 +2,16 @@ const map = L.map('map', { zoomControl: false }).setView([-37.8300, 144.8500], 1
 L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { maxZoom: 20 }).addTo(map);
 
 const BACKEND_URL = "https://loofinder-api.onrender.com";
+const OVERPASS_ENDPOINTS = [
+    "https://overpass-api.de/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter"
+];
 let allToiletData = { features: [] };
 let ratingCache = {};
 let userLocationMarker = null;
 let currentMapLayer = null;
 let activeFilters = { accessible: false, baby: false };
+let disableFacilityNameSaves = false;
 
 // Track unique ID alongside the name
 let currentReviewFacilityId = "";
@@ -62,8 +67,12 @@ async function geocodeAddress(lat, lon) {
 
 // Save resolved name to backend for caching
 async function saveResolvedNameToBackend(facilityId, name, lat, lon) {
+    if (disableFacilityNameSaves) {
+        return;
+    }
+
     try {
-        await fetch(`${BACKEND_URL}/api/facilities`, {
+        const response = await fetch(`${BACKEND_URL}/api/facilities`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -76,6 +85,14 @@ async function saveResolvedNameToBackend(facilityId, name, lat, lon) {
                 baby_change: false
             })
         });
+
+        if (!response.ok) {
+            if (response.status >= 500) {
+                disableFacilityNameSaves = true;
+                console.warn("Disabling facility-name saves due to backend 5xx responses.");
+            }
+            return;
+        }
     } catch (e) {
         console.error("Error saving resolved name:", e);
     }
@@ -106,6 +123,7 @@ async function getDisplayName(facilityId, lat, lon) {
     
     return "Public Toilet";
 }
+
 function toggleSidebar() {
     document.querySelector('.sidebar').classList.toggle('collapsed');
 }
@@ -131,6 +149,27 @@ function showToast(message, type = 'success') {
     setTimeout(() => toast.remove(), 3500);
 }
 
+async function fetchOverpassJson(query) {
+    let lastError = null;
+
+    for (const endpoint of OVERPASS_ENDPOINTS) {
+        try {
+            const response = await fetch(`${endpoint}?data=${encodeURIComponent(query)}`);
+
+            if (!response.ok) {
+                lastError = new Error(`HTTP ${response.status}: ${response.statusText}`);
+                continue;
+            }
+
+            return await response.json();
+        } catch (error) {
+            lastError = error;
+        }
+    }
+
+    throw lastError || new Error("All Overpass endpoints failed");
+}
+
 // --- Data Fetching (Comprehensive Detection) ---
 async function loadDataForCurrentBounds() {
     document.getElementById('loader').style.display = 'flex';
@@ -141,20 +180,27 @@ async function loadDataForCurrentBounds() {
     
     try {
         
-        // Fetch Nodes without tags - very simple query to avoid timeout
+        // Primary query: bbox search
         const overpassQuery = `
-            [out:json][timeout:5];
+            [out:json][timeout:8];
             node["amenity"="toilets"](${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()});
             out;
         `;
-        
-        const response = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(overpassQuery)}`);
-        
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+
+        let data;
+        try {
+            data = await fetchOverpassJson(overpassQuery);
+        } catch (primaryError) {
+            // Fallback query: search around current map center with a smaller radius
+            const center = map.getCenter();
+            const fallbackQuery = `
+                [out:json][timeout:8];
+                node["amenity"="toilets"](around:1200,${center.lat},${center.lng});
+                out;
+            `;
+            data = await fetchOverpassJson(fallbackQuery);
+            console.warn("BBox query failed, used center-radius fallback.", primaryError);
         }
-        
-        const data = await response.json();
         
         // Debug: Log first element to see what data we're getting
         if (data.elements && data.elements.length > 0) {
