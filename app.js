@@ -21,7 +21,91 @@ const toiletIcon = L.divIcon({
     iconAnchor: [14, 14]
 });
 
-// --- Mobile Bottom Sheet Controls ---
+// --- Resolved Name Cache (from Backend) ---
+const nameCache = {}; // Cache resolved names to avoid repeated API calls
+
+// Get resolved name from backend (cached in database)
+async function getResolvedNameFromBackend(facilityId) {
+    try {
+        const response = await fetch(`${BACKEND_URL}/api/facilities/${facilityId}`);
+        const data = await response.json();
+        if (data.facility && data.facility.resolved_name) {
+            return data.facility.resolved_name;
+        }
+        return null;
+    } catch (e) {
+        console.error("Error fetching resolved name from backend:", e);
+        return null;
+    }
+}
+
+// Geocode address from coordinates using Nominatim
+async function geocodeAddress(lat, lon) {
+    try {
+        const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=18&addressdetails=1`);
+        const data = await response.json();
+        
+        const addr = data.address;
+        if (addr.house_number && addr.road) {
+            return `${addr.house_number} ${addr.road}`;
+        } else if (addr.road) {
+            return addr.road;
+        } else if (addr.suburb) {
+            return addr.suburb;
+        }
+        return null;
+    } catch (e) {
+        console.error("Geocoding error:", e);
+        return null;
+    }
+}
+
+// Save resolved name to backend for caching
+async function saveResolvedNameToBackend(facilityId, name, lat, lon) {
+    try {
+        await fetch(`${BACKEND_URL}/api/facilities`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                id: facilityId.toString(),
+                name: name || "Public Toilet",
+                resolved_name: name,
+                latitude: lat,
+                longitude: lon,
+                accessible: false,
+                baby_change: false
+            })
+        });
+    } catch (e) {
+        console.error("Error saving resolved name:", e);
+    }
+}
+
+// Get display name for a facility (with caching)
+async function getDisplayName(facilityId, lat, lon) {
+    // Check memory cache first
+    if (nameCache[facilityId]) {
+        return nameCache[facilityId];
+    }
+    
+    // Check backend cache
+    const cachedName = await getResolvedNameFromBackend(facilityId);
+    if (cachedName) {
+        nameCache[facilityId] = cachedName;
+        return cachedName;
+    }
+    
+    // Geocode and save to backend
+    const geocodedName = await geocodeAddress(lat, lon);
+    if (geocodedName) {
+        nameCache[facilityId] = geocodedName;
+        // Save to backend for future use (don't await, let it happen in background)
+        saveResolvedNameToBackend(facilityId, geocodedName, lat, lon);
+        return geocodedName;
+    }
+    
+    return "Public Toilet";
+}
 function toggleSidebar() {
     document.querySelector('.sidebar').classList.toggle('collapsed');
 }
@@ -83,12 +167,21 @@ async function loadDataForCurrentBounds() {
                 type: "Feature",
                 properties: { 
                     id: el.id,
-                    Name: "Public Toilet",
+                    Name: "Public Toilet", // Will be updated async
+                    lat: el.lat,
+                    lon: el.lon,
                     Accessible: false, 
                     BabyChange: false
                 },
                 geometry: { type: "Point", coordinates: [el.lon, el.lat] }
             }));
+        
+        // Fetch resolved names for all toilets (in parallel)
+        await Promise.all(allToiletData.features.map(async (feature) => {
+            const props = feature.properties;
+            const resolvedName = await getDisplayName(props.id, props.lat, props.lon);
+            props.Name = resolvedName;
+        }));
             
         renderMapPoints();
     } catch (e) { 
