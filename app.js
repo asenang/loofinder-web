@@ -55,13 +55,13 @@ async function loadDataForCurrentBounds() {
     try {
         const bounds = map.getBounds();
         
-        // Fetch Nodes, Ways, and Relations, returning the center point
+        // Fetch Nodes, Ways, and Relations with tags, returning the center point
         const overpassQuery = `
             [out:json][timeout:25];
             (
               nwr["amenity"="toilets"](${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()});
             );
-            out center;
+            out center tags;
         `;
         
         const response = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(overpassQuery)}`);
@@ -73,13 +73,32 @@ async function loadDataForCurrentBounds() {
                 const lat = el.lat || el.center.lat;
                 const lon = el.lon || el.center.lon;
                 
+                // Build a descriptive name from available data
+                let displayName = el.tags.name;
+                
+                if (!displayName) {
+                    // Try to use building name or operator
+                    if (el.tags.operator) {
+                        displayName = el.tags.operator + " Toilet";
+                    } else if (el.tags['addr:street'] && el.tags['addr:housenumber']) {
+                        displayName = `${el.tags['addr:housenumber']} ${el.tags['addr:street']}`;
+                    } else if (el.tags['addr:street']) {
+                        displayName = el.tags['addr:street'];
+                    } else if (el.tags.building) {
+                        displayName = el.tags.building === 'yes' ? "Building Toilet" : el.tags.building + " Toilet";
+                    } else {
+                        displayName = "Public Toilet";
+                    }
+                }
+                
                 return {
                     type: "Feature",
                     properties: { 
-                        id: el.id, // Grab the unique OSM ID
-                        Name: el.tags.name || "Public Toilet", 
+                        id: el.id,
+                        Name: displayName,
                         Accessible: el.tags.wheelchair === 'yes', 
-                        BabyChange: el.tags.diaper === 'yes' || el.tags.changing_table === 'yes'
+                        BabyChange: el.tags.diaper === 'yes' || el.tags.changing_table === 'yes',
+                        rawTags: el.tags // Store for potential future use
                     },
                     geometry: { type: "Point", coordinates: [lon, lat] }
                 };
