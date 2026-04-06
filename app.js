@@ -55,16 +55,21 @@ async function loadDataForCurrentBounds() {
     try {
         const bounds = map.getBounds();
         
-        // Fetch Nodes, Ways, and Relations with tags, returning the center point
+        // Fetch Nodes without tags
         const overpassQuery = `
-            [out:json][timeout:15];
+            [out:json][timeout:10];
             (
-              nwr["amenity"="toilets"](${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()});
+              node["amenity"="toilets"](${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()});
             );
-            out center tags;
+            out;
         `;
         
         const response = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(overpassQuery)}`);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
         const data = await response.json();
         
         // Debug: Log first element to see what data we're getting
@@ -73,50 +78,58 @@ async function loadDataForCurrentBounds() {
         }
 
         allToiletData.features = data.elements
-            .filter(el => el.lat || el.center)
-            .map(el => {
-                const lat = el.lat || el.center.lat;
-                const lon = el.lon || el.center.lon;
-                
-                // Build a descriptive name from available data
-                let displayName = el.tags?.name;
-                
-                if (!displayName) {
-                    // Use operator name if available
-                    if (el.tags?.operator) {
-                        displayName = el.tags.operator;
-                    } else if (el.tags?.['addr:street'] && el.tags?.['addr:housenumber']) {
-                        displayName = `${el.tags['addr:housenumber']} ${el.tags['addr:street']}`;
-                    } else if (el.tags?.['addr:street']) {
-                        displayName = el.tags['addr:street'];
-                    } else if (el.tags?.shop) {
-                        displayName = el.tags.shop;
-                    } else if (el.tags?.amenity && el.tags.amenity !== 'toilets') {
-                        displayName = el.tags.amenity;
-                    } else if (el.tags?.building) {
-                        const buildingType = el.tags.building;
-                        displayName = buildingType === 'yes' ? "Building" : buildingType;
-                    } else {
-                        displayName = "Public Toilet";
-                    }
-                }
-                
-                return {
-                    type: "Feature",
-                    properties: { 
-                        id: el.id,
-                        Name: displayName,
-                        Accessible: el.tags?.wheelchair === 'yes', 
-                        BabyChange: el.tags?.diaper === 'yes' || el.tags?.changing_table === 'yes',
-                        rawTags: el.tags
-                    },
-                    geometry: { type: "Point", coordinates: [lon, lat] }
-                };
-            });
+            .filter(el => el.lat)
+            .map(el => ({
+                type: "Feature",
+                properties: { 
+                    id: el.id,
+                    Name: "Public Toilet",
+                    Accessible: false, 
+                    BabyChange: false
+                },
+                geometry: { type: "Point", coordinates: [el.lon, el.lat] }
+            }));
             
         renderMapPoints();
     } catch (e) { 
         console.error("Overpass API Error:", e); 
+        
+        // Try fallback query without tags if main query fails
+        try {
+            console.log("Trying fallback query...");
+            const fallbackQuery = `
+                [out:json][timeout:10];
+                (
+                  node["amenity"="toilets"](${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()});
+                );
+                out;
+            `;
+            
+            const fallbackResponse = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(fallbackQuery)}`);
+            if (fallbackResponse.ok) {
+                const fallbackData = await fallbackResponse.json();
+                
+                allToiletData.features = fallbackData.elements
+                    .filter(el => el.lat)
+                    .map(el => ({
+                        type: "Feature",
+                        properties: { 
+                            id: el.id,
+                            Name: "Public Toilet",
+                            Accessible: false, 
+                            BabyChange: false
+                        },
+                        geometry: { type: "Point", coordinates: [el.lon, el.lat] }
+                    }));
+                
+                renderMapPoints();
+                showToast("Using simplified data.", "success");
+                return;
+            }
+        } catch (fallbackError) {
+            console.error("Fallback query also failed:", fallbackError);
+        }
+        
         showToast("Error finding toilets in this area.", "error");
     } finally { 
         document.getElementById('loader').style.display = 'none'; 
