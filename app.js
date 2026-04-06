@@ -105,20 +105,20 @@ async function loadDataForCurrentBounds() {
                 if (!displayName) {
                     // Try nearby building name first
                     if (nearbyBuilding?.tags?.name) {
-                        displayName = nearbyBuilding.tags.name + " Toilet";
+                        displayName = nearbyBuilding.tags.name;
                     } else if (nearbyBuilding?.tags?.shop) {
-                        displayName = nearbyBuilding.tags.shop + " Toilet";
+                        displayName = nearbyBuilding.tags.shop;
                     } else if (nearbyBuilding?.tags?.amenity) {
-                        displayName = nearbyBuilding.tags.amenity + " Toilet";
+                        displayName = nearbyBuilding.tags.amenity;
                     } else if (el.tags?.operator) {
-                        displayName = el.tags.operator + " Toilet";
+                        displayName = el.tags.operator;
                     } else if (el.tags?.['addr:street'] && el.tags?.['addr:housenumber']) {
                         displayName = `${el.tags['addr:housenumber']} ${el.tags['addr:street']}`;
                     } else if (el.tags?.['addr:street']) {
                         displayName = el.tags['addr:street'];
                     } else if (nearbyBuilding?.tags?.building) {
                         const buildingType = nearbyBuilding.tags.building;
-                        displayName = buildingType === 'yes' ? "Building Toilet" : buildingType + " Toilet";
+                        displayName = buildingType === 'yes' ? "Building" : buildingType;
                     } else {
                         displayName = "Public Toilet";
                     }
