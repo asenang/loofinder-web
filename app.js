@@ -532,6 +532,16 @@ async function fetchRatingSummaries(facilityIds, force = false) {
     }
 }
 
+async function waitForRatingSummaryInFlight(facilityId, timeoutMs = 3000) {
+    const startedAt = Date.now();
+
+    while (ratingSummaryInFlight.has(facilityId) && (Date.now() - startedAt) < timeoutMs) {
+        await new Promise((resolve) => setTimeout(resolve, 80));
+    }
+
+    return getCachedRatingSummary(facilityId);
+}
+
 async function fetchAndDisplayRating(facilityId, name, htmlId) {
     const el = document.getElementById(htmlId);
     if (!el) return;
@@ -544,6 +554,17 @@ async function fetchAndDisplayRating(facilityId, name, htmlId) {
 
     el.innerHTML = `<span style="font-size:13px; font-weight:600;"><span class="material-symbols-outlined" style="font-size:14px; vertical-align:middle;">hourglass_top</span> Loading rating...</span>`;
     const updated = await fetchRatingSummaries([facilityId], true);
+
+    let summary = getCachedRatingSummary(facilityId);
+    if (!summary && ratingSummaryInFlight.has(facilityId)) {
+        summary = await waitForRatingSummaryInFlight(facilityId);
+    }
+
+    if (summary) {
+        el.innerHTML = getRatingHtml(facilityId, name, summary);
+        return;
+    }
+
     if (!updated) {
         el.innerHTML = `<span style="font-size:13px; color:#e74c3c;"><span class="material-symbols-outlined" style="font-size:14px; vertical-align:middle;">error</span> Rating unavailable</span>`;
         return;
