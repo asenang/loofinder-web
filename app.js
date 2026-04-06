@@ -8,12 +8,15 @@ const OVERPASS_ENDPOINTS = [
 ];
 let allToiletData = { features: [] };
 let ratingCache = {};
+let ratingSummaryCache = {};
 let userLocationMarker = null;
 let currentMapLayer = null;
 let activeFilters = { accessible: false, baby: false };
 let disableFacilityNameSaves = false;
 let currentLoadToken = 0;
 let progressiveRenderTimer = null;
+const RATING_SUMMARY_TTL_MS = 60 * 1000;
+const ratingSummaryInFlight = new Set();
 
 // Track unique ID alongside the name
 let currentReviewFacilityId = "";
@@ -369,29 +372,15 @@ function renderMapPoints() {
         const lat = f.geometry.coordinates[1];
         const lng = f.geometry.coordinates[0];
         f.properties.dist = map.distance(referencePoint, L.latLng(lat, lng));
-        
-        // Instant Pre-fetch Cache using the unique ID
-        const facilityId = f.properties.id;
-        if (!ratingCache[facilityId]) {
-            fetch(`${BACKEND_URL}/api/reviews/${facilityId}`)
-                .then(r => r.json()).then(d => {
-                    ratingCache[facilityId] = d.reviews;
-                    // Update display if popup is already open
-                    const safeId = "rt-" + facilityId;
-                    const el = document.getElementById(safeId);
-                    if (el && d.reviews.length > 0) {
-                        const avg = (d.reviews.reduce((s, r) => s + r.rating, 0) / d.reviews.length).toFixed(1);
-                        el.innerHTML = `<span class="clickable-rating" onclick="openReviewsList('${facilityId}', '${f.properties.Name.replace(/'/g, "\\'")}')">
-                            <span class="material-symbols-outlined" style="font-size:16px; color:#f59e0b;">star</span> ${avg} (${d.reviews.length})
-                        </span>`;
-                    } else if (el) {
-                        el.innerHTML = `<span style="font-size:13px; font-weight:600;"><span class="material-symbols-outlined" style="font-size:14px; vertical-align:middle;">star_outline</span> No reviews yet</span>`;
-                    }
-                });
-        }
     });
 
     displayFeatures.sort((a,b) => a.properties.dist - b.properties.dist);
+
+    fetchRatingSummaries(displayFeatures.map(f => f.properties.id)).then((updated) => {
+        if (updated) {
+            renderMapPoints();
+        }
+    });
 
     currentMapLayer = L.geoJSON({type: "FeatureCollection", features: displayFeatures}, {
         pointToLayer: function (feature, latlng) {
@@ -407,7 +396,7 @@ function renderMapPoints() {
 
             l.bindPopup(`
                 <div style="font-weight:700; font-size:15px; color:#2c3e50;">${name}</div>
-                <div id="${safeId}" style="color:#7f8c8d; margin:8px 0 12px 0;">Loading rating...</div>
+                <div id="${safeId}" style="color:#7f8c8d; margin:8px 0 12px 0;">${getRatingHtml(facilityId, name, getCachedRatingSummary(facilityId))}</div>
                 <div style="display: flex; gap: 8px;">
                     <a href="${mapsUrl}" target="_blank" class="btn-action-small btn-directions" style="flex:1;">
                         <span class="material-symbols-outlined" style="font-size: 16px;">directions</span> Directions
@@ -467,31 +456,100 @@ function renderMapPoints() {
     });
 }
 
+function getCachedRatingSummary(facilityId) {
+    const summary = ratingSummaryCache[facilityId];
+    if (!summary) {
+        return null;
+    }
+
+    if (Date.now() - summary.fetchedAt > RATING_SUMMARY_TTL_MS) {
+        return null;
+    }
+
+    return summary;
+}
+
+function getRatingHtml(facilityId, name, summary) {
+    if (!summary || !summary.review_count) {
+        return `<span style="font-size:13px; font-weight:600;"><span class="material-symbols-outlined" style="font-size:14px; vertical-align:middle;">star_outline</span> No reviews yet</span>`;
+    }
+
+    const avg = Number(summary.avg_rating || 0).toFixed(1);
+    return `<span class="clickable-rating" onclick="openReviewsList('${facilityId}', '${name.replace(/'/g, "\\'")}')">
+                <span class="material-symbols-outlined" style="font-size:16px; color:#f59e0b;">star</span> ${avg} (${summary.review_count})
+            </span>`;
+}
+
+async function fetchRatingSummaries(facilityIds, force = false) {
+    const ids = Array.from(new Set((facilityIds || []).filter(Boolean).map(id => id.toString())));
+    if (ids.length === 0) {
+        return false;
+    }
+
+    const now = Date.now();
+    const idsToFetch = ids.filter((id) => {
+        if (ratingSummaryInFlight.has(id)) {
+            return false;
+        }
+        if (force) {
+            return true;
+        }
+        const cached = ratingSummaryCache[id];
+        return !cached || (now - cached.fetchedAt > RATING_SUMMARY_TTL_MS);
+    });
+
+    if (idsToFetch.length === 0) {
+        return false;
+    }
+
+    idsToFetch.forEach((id) => ratingSummaryInFlight.add(id));
+
+    try {
+        const response = await fetch(`${BACKEND_URL}/api/reviews-summary?ids=${encodeURIComponent(idsToFetch.join(','))}`);
+        if (!response.ok) {
+            return false;
+        }
+
+        const data = await response.json();
+        const summaries = data.summaries || {};
+        const fetchedAt = Date.now();
+
+        idsToFetch.forEach((facilityId) => {
+            const summary = summaries[facilityId] || { review_count: 0, avg_rating: 0 };
+            ratingSummaryCache[facilityId] = {
+                review_count: Number(summary.review_count || 0),
+                avg_rating: Number(summary.avg_rating || 0),
+                fetchedAt,
+            };
+        });
+
+        return true;
+    } catch (error) {
+        console.error("Error fetching rating summaries:", error);
+        return false;
+    } finally {
+        idsToFetch.forEach((id) => ratingSummaryInFlight.delete(id));
+    }
+}
+
 async function fetchAndDisplayRating(facilityId, name, htmlId) {
     const el = document.getElementById(htmlId);
     if (!el) return;
-    
-    try {
-        // Always fetch fresh data to avoid stale cache issues
-        const response = await fetch(`${BACKEND_URL}/api/reviews/${facilityId}`);
-        const data = await response.json();
-        const reviews = data.reviews || [];
-        
-        // Update cache
-        ratingCache[facilityId] = reviews;
-        
-        if (reviews.length > 0) {
-            const avg = (reviews.reduce((s, r) => s + r.rating, 0) / reviews.length).toFixed(1);
-            el.innerHTML = `<span class="clickable-rating" onclick="openReviewsList('${facilityId}', '${name.replace(/'/g, "\\'")}')">
-                <span class="material-symbols-outlined" style="font-size:16px; color:#f59e0b;">star</span> ${avg} (${reviews.length})
-            </span>`;
-        } else { 
-            el.innerHTML = `<span style="font-size:13px; font-weight:600;"><span class="material-symbols-outlined" style="font-size:14px; vertical-align:middle;">star_outline</span> No reviews yet</span>`; 
-        }
-    } catch (error) {
-        console.error("Error displaying rating:", error);
-        el.innerHTML = `<span style="font-size:13px; color:#e74c3c;"><span class="material-symbols-outlined" style="font-size:14px; vertical-align:middle;">error</span> Rating unavailable</span>`;
+
+    const cachedSummary = getCachedRatingSummary(facilityId);
+    if (cachedSummary) {
+        el.innerHTML = getRatingHtml(facilityId, name, cachedSummary);
+        return;
     }
+
+    el.innerHTML = `<span style="font-size:13px; font-weight:600;"><span class="material-symbols-outlined" style="font-size:14px; vertical-align:middle;">hourglass_top</span> Loading rating...</span>`;
+    const updated = await fetchRatingSummaries([facilityId], true);
+    if (!updated) {
+        el.innerHTML = `<span style="font-size:13px; color:#e74c3c;"><span class="material-symbols-outlined" style="font-size:14px; vertical-align:middle;">error</span> Rating unavailable</span>`;
+        return;
+    }
+
+    el.innerHTML = getRatingHtml(facilityId, name, getCachedRatingSummary(facilityId));
 }
 
 // --- GPS Logic ---
@@ -539,6 +597,7 @@ async function submitReview() {
             showToast("Review saved!", "success"); 
             closeModal(); 
             delete ratingCache[currentReviewFacilityId]; 
+            delete ratingSummaryCache[currentReviewFacilityId];
             loadDataForCurrentBounds(); 
         }
     } catch (e) { showToast("Error connecting.", "error"); }
