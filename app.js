@@ -12,6 +12,7 @@ let userLocationMarker = null;
 let currentMapLayer = null;
 let activeFilters = { accessible: false, baby: false };
 let disableFacilityNameSaves = false;
+let currentLoadToken = 0;
 
 // Track unique ID alongside the name
 let currentReviewFacilityId = "";
@@ -170,66 +171,157 @@ async function fetchOverpassJson(query) {
     throw lastError || new Error("All Overpass endpoints failed");
 }
 
+function dedupeFeatures(features) {
+    const byId = new Map();
+    for (const feature of features) {
+        byId.set(feature.properties.id, feature);
+    }
+    return Array.from(byId.values());
+}
+
+function elementsToFeatures(elements) {
+    return elements
+        .map((el) => {
+            const lat = el.lat ?? el.center?.lat;
+            const lon = el.lon ?? el.center?.lon;
+            if (lat == null || lon == null) {
+                return null;
+            }
+
+            const featureId = el.type === "node" ? el.id : `${el.type}-${el.id}`;
+
+            return {
+                type: "Feature",
+                properties: {
+                    id: featureId,
+                    Name: "Public Toilet",
+                    lat,
+                    lon,
+                    Accessible: false,
+                    BabyChange: false
+                },
+                geometry: { type: "Point", coordinates: [lon, lat] }
+            };
+        })
+        .filter(Boolean);
+}
+
+async function resolveNamesInBackground(loadToken, features) {
+    const workers = 6;
+    let index = 0;
+    let changedCount = 0;
+
+    async function worker() {
+        while (index < features.length) {
+            const feature = features[index++];
+            if (!feature || !feature.properties) {
+                continue;
+            }
+
+            if (loadToken !== currentLoadToken) {
+                return;
+            }
+
+            const props = feature.properties;
+            const resolvedName = await getDisplayName(props.id, props.lat, props.lon);
+
+            if (loadToken !== currentLoadToken) {
+                return;
+            }
+
+            if (resolvedName && props.Name !== resolvedName) {
+                props.Name = resolvedName;
+                changedCount += 1;
+
+                if (changedCount % 8 === 0) {
+                    renderMapPoints();
+                }
+            }
+        }
+    }
+
+    await Promise.all(Array.from({ length: workers }, worker));
+
+    if (loadToken === currentLoadToken && changedCount > 0) {
+        renderMapPoints();
+    }
+}
+
 // --- Data Fetching (Comprehensive Detection) ---
 async function loadDataForCurrentBounds() {
     document.getElementById('loader').style.display = 'flex';
     document.getElementById('btn-search-area').style.display = 'none';
+    const loadToken = ++currentLoadToken;
     
     // Get bounds outside try so it's available in catch
     const bounds = map.getBounds();
     
     try {
-        
-        // Primary query: bbox search
-        const overpassQuery = `
+        const nodeQuery = `
             [out:json][timeout:8];
             node["amenity"="toilets"](${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()});
             out;
         `;
 
-        let data;
+        let data = null;
         try {
-            data = await fetchOverpassJson(overpassQuery);
+            data = await fetchOverpassJson(nodeQuery);
         } catch (primaryError) {
-            // Fallback query: search around current map center with a smaller radius
             const center = map.getCenter();
             const fallbackQuery = `
                 [out:json][timeout:8];
-                node["amenity"="toilets"](around:1200,${center.lat},${center.lng});
+                node["amenity"="toilets"](around:2500,${center.lat},${center.lng});
                 out;
             `;
             data = await fetchOverpassJson(fallbackQuery);
-            console.warn("BBox query failed, used center-radius fallback.", primaryError);
-        }
-        
-        // Debug: Log first element to see what data we're getting
-        if (data.elements && data.elements.length > 0) {
-            console.log('Sample data:', data.elements[0]);
+            console.warn("BBox node query failed, used wider center-radius fallback.", primaryError);
         }
 
-        allToiletData.features = data.elements
-            .filter(el => el.lat)
-            .map(el => ({
-                type: "Feature",
-                properties: { 
-                    id: el.id,
-                    Name: "Public Toilet", // Will be updated async
-                    lat: el.lat,
-                    lon: el.lon,
-                    Accessible: false, 
-                    BabyChange: false
-                },
-                geometry: { type: "Point", coordinates: [el.lon, el.lat] }
-            }));
-        
-        // Fetch resolved names for all toilets (in parallel)
-        await Promise.all(allToiletData.features.map(async (feature) => {
-            const props = feature.properties;
-            const resolvedName = await getDisplayName(props.id, props.lat, props.lon);
-            props.Name = resolvedName;
-        }));
-            
+        if (loadToken !== currentLoadToken) {
+            return;
+        }
+
+        allToiletData.features = dedupeFeatures(elementsToFeatures(data.elements || []));
         renderMapPoints();
+
+        resolveNamesInBackground(loadToken, allToiletData.features).catch((error) => {
+            console.error("Background name resolution failed:", error);
+        });
+
+        const waysRelationsQuery = `
+            [out:json][timeout:10];
+            (
+              way["amenity"="toilets"](${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()});
+              relation["amenity"="toilets"](${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()});
+            );
+            out center;
+        `;
+
+        fetchOverpassJson(waysRelationsQuery)
+            .then((extraData) => {
+                if (loadToken !== currentLoadToken) {
+                    return;
+                }
+
+                const currentIds = new Set(allToiletData.features.map((f) => f.properties.id));
+                const extraFeatures = elementsToFeatures(extraData.elements || []).filter(
+                    (feature) => !currentIds.has(feature.properties.id)
+                );
+
+                if (extraFeatures.length === 0) {
+                    return;
+                }
+
+                allToiletData.features = dedupeFeatures([...allToiletData.features, ...extraFeatures]);
+                renderMapPoints();
+
+                resolveNamesInBackground(loadToken, extraFeatures).catch((error) => {
+                    console.error("Background name resolution for extra features failed:", error);
+                });
+            })
+            .catch((error) => {
+                console.warn("Supplemental ways/relations query failed:", error);
+            });
     } catch (e) { 
         console.error("Overpass API Error:", e); 
         showToast("Error finding toilets in this area. Try zooming in or moving to a different area.", "error");
