@@ -60,7 +60,7 @@ async function loadDataForCurrentBounds() {
             [out:json][timeout:25];
             (
               nwr["amenity"="toilets"](${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()});
-              way["building"]~".*"(~".*")(${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()});
+              way["building"](${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()});
             );
             out center tags;
         `;
