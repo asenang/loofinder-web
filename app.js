@@ -420,6 +420,8 @@ function renderMapPoints() {
     top5Nearest.forEach(feature => {
         const name = feature.properties.Name;
         const facilityId = feature.properties.id;
+        const ratingSummary = getCachedRatingSummary(facilityId);
+        const listRatingHtml = getListRatingHtml(facilityId, ratingSummary);
         const accIcon = feature.properties.Accessible ? '<span class="material-symbols-outlined" title="Accessible" style="font-size:16px;">accessible</span>' : '';
         const babyIcon = feature.properties.BabyChange ? '<span class="material-symbols-outlined" title="Baby Change" style="font-size:16px;">baby_changing_station</span>' : '';
         const distanceKm = (feature.properties.dist / 1000).toFixed(2);
@@ -436,6 +438,7 @@ function renderMapPoints() {
                 <div class="list-item-title">${name}</div>
                 <div class="distance-badge">${distanceKm} km</div>
             </div>
+            <div class="list-item-rating">${listRatingHtml}</div>
             <div class="list-item-features">${accIcon} ${babyIcon}</div>
             <div class="list-item-actions">
                 <a href="${mapsUrl}" target="_blank" class="btn-action-small btn-directions" onclick="event.stopPropagation();">
@@ -478,6 +481,19 @@ function getRatingHtml(facilityId, name, summary) {
     return `<span class="clickable-rating" onclick="openReviewsList('${facilityId}', '${name.replace(/'/g, "\\'")}')">
                 <span class="material-symbols-outlined" style="font-size:16px; color:#f59e0b;">star</span> ${avg} (${summary.review_count})
             </span>`;
+}
+
+function getListRatingHtml(facilityId, summary) {
+    if (summary && summary.review_count) {
+        const avg = Number(summary.avg_rating || 0).toFixed(1);
+        return `<span class="score">★ ${avg}</span> <span class="count">(${summary.review_count})</span>`;
+    }
+
+    if (ratingSummaryInFlight.has(facilityId)) {
+        return `<span class="pending">Loading rating...</span>`;
+    }
+
+    return `<span class="empty">No reviews yet</span>`;
 }
 
 async function fetchRatingSummaries(facilityIds, force = false) {
