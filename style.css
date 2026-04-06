@@ -26,13 +26,13 @@ p { color: #7f8c8d; font-size: 14px; margin-bottom: 16px; }
 
 .list-item { 
     padding: 16px; border-radius: 12px; cursor: pointer; border-bottom: 1px solid #f1f5f9;
-    display: flex; flex-direction: column; gap: 8px; transition: background 0.2s, transform 0.1s;
+    display: flex; flex-direction: column; gap: 6px; transition: background 0.2s, transform 0.1s;
 }
 .list-item:hover { background: #f8fafc; transform: translateY(-1px); }
 
 .list-item-header { display: flex; justify-content: space-between; align-items: flex-start; }
 .list-item-title { font-weight: 700; color: #2c3e50; font-size: 15px; }
-.list-item-rating { font-size: 12px; line-height: 1.2; margin-top: -2px; }
+.list-item-rating { font-size: 12px; line-height: 1.2; margin-top: -5px; margin-bottom: -2px; }
 .list-item-rating .score { color: #f59e0b; font-weight: 700; }
 .list-item-rating .count { color: #64748b; font-weight: 600; }
 .list-item-rating .pending,
@@ -42,7 +42,8 @@ p { color: #7f8c8d; font-size: 14px; margin-bottom: 16px; }
 .distance-badge { font-size: 11px; font-weight: 700; color: #007aff; background: #eef2ff; padding: 4px 8px; border-radius: 20px; white-space: nowrap; }
 
 .list-item-features { font-size: 13px; color: #7f8c8d; display: flex; gap: 8px; align-items: center; }
-.list-item-actions { display: flex; gap: 8px; margin-top: 4px; }
+.list-item-features:empty { display: none; }
+.list-item-actions { display: flex; gap: 8px; margin-top: 0; }
 
 .btn-action-small {
     flex: 1; padding: 8px; border-radius: 8px; font-size: 13px; font-weight: 600;
