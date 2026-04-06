@@ -13,6 +13,7 @@ let currentMapLayer = null;
 let activeFilters = { accessible: false, baby: false };
 let disableFacilityNameSaves = false;
 let currentLoadToken = 0;
+let progressiveRenderTimer = null;
 
 // Track unique ID alongside the name
 let currentReviewFacilityId = "";
@@ -206,6 +207,23 @@ function elementsToFeatures(elements) {
         .filter(Boolean);
 }
 
+function scheduleProgressiveRender(loadToken, delayMs = 350) {
+    if (loadToken !== currentLoadToken) {
+        return;
+    }
+
+    if (progressiveRenderTimer) {
+        return;
+    }
+
+    progressiveRenderTimer = setTimeout(() => {
+        progressiveRenderTimer = null;
+        if (loadToken === currentLoadToken) {
+            renderMapPoints();
+        }
+    }, delayMs);
+}
+
 async function resolveNamesInBackground(loadToken, features) {
     const workers = 6;
     let index = 0;
@@ -232,10 +250,7 @@ async function resolveNamesInBackground(loadToken, features) {
             if (resolvedName && props.Name !== resolvedName) {
                 props.Name = resolvedName;
                 changedCount += 1;
-
-                if (changedCount % 8 === 0) {
-                    renderMapPoints();
-                }
+                scheduleProgressiveRender(loadToken);
             }
         }
     }
@@ -251,6 +266,12 @@ async function resolveNamesInBackground(loadToken, features) {
 async function loadDataForCurrentBounds() {
     document.getElementById('loader').style.display = 'flex';
     document.getElementById('btn-search-area').style.display = 'none';
+
+    if (progressiveRenderTimer) {
+        clearTimeout(progressiveRenderTimer);
+        progressiveRenderTimer = null;
+    }
+
     const loadToken = ++currentLoadToken;
     
     // Get bounds outside try so it's available in catch
