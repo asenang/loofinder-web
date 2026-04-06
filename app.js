@@ -66,6 +66,11 @@ async function loadDataForCurrentBounds() {
         
         const response = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(overpassQuery)}`);
         const data = await response.json();
+        
+        // Debug: Log first element to see what data we're getting
+        if (data.elements && data.elements.length > 0) {
+            console.log('Sample toilet data:', data.elements[0]);
+        }
 
         allToiletData.features = data.elements
             .filter(el => el.lat || el.center)
@@ -74,17 +79,17 @@ async function loadDataForCurrentBounds() {
                 const lon = el.lon || el.center.lon;
                 
                 // Build a descriptive name from available data
-                let displayName = el.tags.name;
+                let displayName = el.tags?.name;
                 
                 if (!displayName) {
                     // Try to use building name or operator
-                    if (el.tags.operator) {
+                    if (el.tags?.operator) {
                         displayName = el.tags.operator + " Toilet";
-                    } else if (el.tags['addr:street'] && el.tags['addr:housenumber']) {
+                    } else if (el.tags?.['addr:street'] && el.tags?.['addr:housenumber']) {
                         displayName = `${el.tags['addr:housenumber']} ${el.tags['addr:street']}`;
-                    } else if (el.tags['addr:street']) {
+                    } else if (el.tags?.['addr:street']) {
                         displayName = el.tags['addr:street'];
-                    } else if (el.tags.building) {
+                    } else if (el.tags?.building) {
                         displayName = el.tags.building === 'yes' ? "Building Toilet" : el.tags.building + " Toilet";
                     } else {
                         displayName = "Public Toilet";
@@ -96,8 +101,8 @@ async function loadDataForCurrentBounds() {
                     properties: { 
                         id: el.id,
                         Name: displayName,
-                        Accessible: el.tags.wheelchair === 'yes', 
-                        BabyChange: el.tags.diaper === 'yes' || el.tags.changing_table === 'yes',
+                        Accessible: el.tags?.wheelchair === 'yes', 
+                        BabyChange: el.tags?.diaper === 'yes' || el.tags?.changing_table === 'yes',
                         rawTags: el.tags // Store for potential future use
                     },
                     geometry: { type: "Point", coordinates: [lon, lat] }
