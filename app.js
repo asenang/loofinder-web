@@ -57,10 +57,9 @@ async function loadDataForCurrentBounds() {
         
         // Fetch Nodes, Ways, and Relations with tags, returning the center point
         const overpassQuery = `
-            [out:json][timeout:25];
+            [out:json][timeout:15];
             (
               nwr["amenity"="toilets"](${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()});
-              way["building"](${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()});
             );
             out center tags;
         `;
@@ -73,51 +72,29 @@ async function loadDataForCurrentBounds() {
             console.log('Sample data:', data.elements[0]);
         }
 
-        // Separate toilets and buildings
-        const toilets = data.elements.filter(el => el.tags?.amenity === 'toilets');
-        const buildings = data.elements.filter(el => el.tags?.building);
-        
-        allToiletData.features = toilets
+        allToiletData.features = data.elements
             .filter(el => el.lat || el.center)
             .map(el => {
                 const lat = el.lat || el.center.lat;
                 const lon = el.lon || el.center.lon;
                 
-                // Find nearby building (within 50 meters)
-                let nearbyBuilding = null;
-                if (buildings.length > 0) {
-                    nearbyBuilding = buildings.find(building => {
-                        const buildingLat = building.lat || building.center?.lat;
-                        const buildingLon = building.lon || building.center?.lon;
-                        if (!buildingLat || !buildingLon) return false;
-                        
-                        const distance = Math.sqrt(
-                            Math.pow(lat - buildingLat, 2) + 
-                            Math.pow(lon - buildingLon, 2)
-                        ) * 111000; // Rough conversion to meters
-                        return distance <= 50; // 50 meters
-                    });
-                }
-                
                 // Build a descriptive name from available data
                 let displayName = el.tags?.name;
                 
                 if (!displayName) {
-                    // Try nearby building name first
-                    if (nearbyBuilding?.tags?.name) {
-                        displayName = nearbyBuilding.tags.name;
-                    } else if (nearbyBuilding?.tags?.shop) {
-                        displayName = nearbyBuilding.tags.shop;
-                    } else if (nearbyBuilding?.tags?.amenity) {
-                        displayName = nearbyBuilding.tags.amenity;
-                    } else if (el.tags?.operator) {
+                    // Use operator name if available
+                    if (el.tags?.operator) {
                         displayName = el.tags.operator;
                     } else if (el.tags?.['addr:street'] && el.tags?.['addr:housenumber']) {
                         displayName = `${el.tags['addr:housenumber']} ${el.tags['addr:street']}`;
                     } else if (el.tags?.['addr:street']) {
                         displayName = el.tags['addr:street'];
-                    } else if (nearbyBuilding?.tags?.building) {
-                        const buildingType = nearbyBuilding.tags.building;
+                    } else if (el.tags?.shop) {
+                        displayName = el.tags.shop;
+                    } else if (el.tags?.amenity && el.tags.amenity !== 'toilets') {
+                        displayName = el.tags.amenity;
+                    } else if (el.tags?.building) {
+                        const buildingType = el.tags.building;
                         displayName = buildingType === 'yes' ? "Building" : buildingType;
                     } else {
                         displayName = "Public Toilet";
@@ -131,8 +108,7 @@ async function loadDataForCurrentBounds() {
                         Name: displayName,
                         Accessible: el.tags?.wheelchair === 'yes', 
                         BabyChange: el.tags?.diaper === 'yes' || el.tags?.changing_table === 'yes',
-                        rawTags: el.tags,
-                        nearbyBuilding: nearbyBuilding?.tags?.name || null
+                        rawTags: el.tags
                     },
                     geometry: { type: "Point", coordinates: [lon, lat] }
                 };
