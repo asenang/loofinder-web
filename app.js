@@ -136,15 +136,15 @@ async function loadDataForCurrentBounds() {
     document.getElementById('loader').style.display = 'flex';
     document.getElementById('btn-search-area').style.display = 'none';
     
+    // Get bounds outside try so it's available in catch
+    const bounds = map.getBounds();
+    
     try {
-        const bounds = map.getBounds();
         
-        // Fetch Nodes without tags
+        // Fetch Nodes without tags - very simple query to avoid timeout
         const overpassQuery = `
-            [out:json][timeout:10];
-            (
-              node["amenity"="toilets"](${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()});
-            );
+            [out:json][timeout:5];
+            node["amenity"="toilets"](${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()});
             out;
         `;
         
@@ -186,44 +186,7 @@ async function loadDataForCurrentBounds() {
         renderMapPoints();
     } catch (e) { 
         console.error("Overpass API Error:", e); 
-        
-        // Try fallback query without tags if main query fails
-        try {
-            console.log("Trying fallback query...");
-            const fallbackQuery = `
-                [out:json][timeout:10];
-                (
-                  node["amenity"="toilets"](${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()});
-                );
-                out;
-            `;
-            
-            const fallbackResponse = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(fallbackQuery)}`);
-            if (fallbackResponse.ok) {
-                const fallbackData = await fallbackResponse.json();
-                
-                allToiletData.features = fallbackData.elements
-                    .filter(el => el.lat)
-                    .map(el => ({
-                        type: "Feature",
-                        properties: { 
-                            id: el.id,
-                            Name: "Public Toilet",
-                            Accessible: false, 
-                            BabyChange: false
-                        },
-                        geometry: { type: "Point", coordinates: [el.lon, el.lat] }
-                    }));
-                
-                renderMapPoints();
-                showToast("Using simplified data.", "success");
-                return;
-            }
-        } catch (fallbackError) {
-            console.error("Fallback query also failed:", fallbackError);
-        }
-        
-        showToast("Error finding toilets in this area.", "error");
+        showToast("Error finding toilets in this area. Try zooming in or moving to a different area.", "error");
     } finally { 
         document.getElementById('loader').style.display = 'none'; 
     }
