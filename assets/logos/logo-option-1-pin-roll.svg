@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="LooFinder logo option 1">
+  <defs>
+    <linearGradient id="bg1" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1D4ED8"/>
+      <stop offset="100%" stop-color="#2563EB"/>
+    </linearGradient>
+  </defs>
+  <rect width="256" height="256" rx="56" fill="url(#bg1)"/>
+  <path d="M128 34c-36 0-66 30-66 66 0 45 45 97 62 115a6 6 0 0 0 8 0c17-18 62-70 62-115 0-36-30-66-66-66z" fill="#fff"/>
+  <circle cx="128" cy="102" r="34" fill="#1D4ED8"/>
+  <rect x="102" y="86" width="52" height="20" rx="10" fill="#fff"/>
+  <circle cx="142" cy="96" r="8" fill="#1D4ED8"/>
+  <rect x="94" y="110" width="36" height="10" rx="5" fill="#fff" opacity="0.9"/>
+</svg>

@@ -1,7 +1,11 @@
 const map = L.map('map', { zoomControl: false }).setView([-37.8300, 144.8500], 14);
-L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { maxZoom: 20 }).addTo(map);
+const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+L.tileLayer(`https://{s}.basemaps.cartocdn.com/${prefersDark ? 'dark_all' : 'light_all'}/{z}/{x}/{y}{r}.png`, { maxZoom: 20 }).addTo(map);
 
-const BACKEND_URL = "https://loofinder-api.onrender.com";
+// Environment Configuration
+const IS_LOCAL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname === '';
+const BACKEND_URL = IS_LOCAL ? "http://localhost:8000" : "https://loofinder-api.onrender.com";
+
 const OVERPASS_ENDPOINTS = [
     "https://overpass-api.de/api/interpreter",
     "https://overpass.kumi.systems/api/interpreter"
@@ -22,6 +26,20 @@ const ratingSummaryInFlight = new Set();
 let currentReviewFacilityId = "";
 let currentReviewFacilityName = "";
 let currentRating = 0;
+
+// Escape HTML to prevent XSS from map data
+function escapeHTML(str) {
+    if (!str) return "";
+    return str.replace(/[&<>'"]/g, 
+        tag => ({
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            "'": '&#39;',
+            '"': '&quot;'
+        }[tag])
+    );
+}
 
 // Custom Map Pin
 const toiletIcon = L.divIcon({
@@ -49,10 +67,20 @@ async function getResolvedNameFromBackend(facilityId) {
     }
 }
 
+let lastNominatimCall = 0;
 // Geocode address from coordinates using Nominatim
 async function geocodeAddress(lat, lon) {
+    const now = Date.now();
+    const timeToWait = Math.max(0, 1000 - (now - lastNominatimCall));
+    if (timeToWait > 0) {
+        await new Promise(resolve => setTimeout(resolve, timeToWait));
+    }
+    lastNominatimCall = Date.now();
+
     try {
-        const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=18&addressdetails=1`);
+        const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=18&addressdetails=1`, {
+            headers: { 'User-Agent': 'LooFinder Web App' }
+        });
         const data = await response.json();
         
         const addr = data.address;
@@ -228,37 +256,23 @@ function scheduleProgressiveRender(loadToken, delayMs = 350) {
 }
 
 async function resolveNamesInBackground(loadToken, features) {
-    const workers = 6;
-    let index = 0;
     let changedCount = 0;
 
-    async function worker() {
-        while (index < features.length) {
-            const feature = features[index++];
-            if (!feature || !feature.properties) {
-                continue;
-            }
+    for (const feature of features) {
+        if (!feature || !feature.properties) continue;
+        if (loadToken !== currentLoadToken) return;
 
-            if (loadToken !== currentLoadToken) {
-                return;
-            }
+        const props = feature.properties;
+        const resolvedName = await getDisplayName(props.id, props.lat, props.lon);
 
-            const props = feature.properties;
-            const resolvedName = await getDisplayName(props.id, props.lat, props.lon);
+        if (loadToken !== currentLoadToken) return;
 
-            if (loadToken !== currentLoadToken) {
-                return;
-            }
-
-            if (resolvedName && props.Name !== resolvedName) {
-                props.Name = resolvedName;
-                changedCount += 1;
-                scheduleProgressiveRender(loadToken);
-            }
+        if (resolvedName && props.Name !== resolvedName) {
+            props.Name = resolvedName;
+            changedCount += 1;
+            scheduleProgressiveRender(loadToken);
         }
     }
-
-    await Promise.all(Array.from({ length: workers }, worker));
 
     if (loadToken === currentLoadToken && changedCount > 0) {
         renderMapPoints();
@@ -388,6 +402,7 @@ function renderMapPoints() {
         },
         onEachFeature: (f, l) => {
             const name = f.properties.Name;
+            const safeName = escapeHTML(name);
             const facilityId = f.properties.id;
             const safeId = "rt-" + facilityId; 
             const lat = f.geometry.coordinates[1];
@@ -395,20 +410,20 @@ function renderMapPoints() {
             const mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=walking`;
 
             l.bindPopup(`
-                <div style="font-weight:700; font-size:15px; color:#2c3e50;">${name}</div>
-                <div id="${safeId}" style="color:#7f8c8d; margin:8px 0 12px 0;">${getRatingHtml(facilityId, name, getCachedRatingSummary(facilityId))}</div>
+                <div class="popup-title">${safeName}</div>
+                <div id="${safeId}" class="popup-rating">${getRatingHtml(facilityId, safeName, getCachedRatingSummary(facilityId))}</div>
                 <div style="display: flex; gap: 8px;">
                     <a href="${mapsUrl}" target="_blank" class="btn-action-small btn-directions" style="flex:1;">
                         <span class="material-symbols-outlined" style="font-size: 16px;">directions</span> Directions
                     </a>
-                    <button class="btn-action-small btn-rate" style="flex:1;" onclick="openModal('${facilityId}', '${name.replace(/'/g, "\\'")}')">
+                    <button class="btn-action-small btn-rate" style="flex:1;" onclick="openModal('${facilityId}', '${safeName.replace(/'/g, "\\'")}')">
                         <span class="material-symbols-outlined" style="font-size: 16px;">star</span> Rate
                     </button>
                 </div>
             `);
             
             l.on('popupopen', () => {
-                fetchAndDisplayRating(facilityId, name, safeId);
+                fetchAndDisplayRating(facilityId, safeName, safeId);
                 collapseSidebar(); // Snaps the sheet down so you can see the popup
             });
             f.layerRef = l;
@@ -419,6 +434,7 @@ function renderMapPoints() {
     
     top5Nearest.forEach(feature => {
         const name = feature.properties.Name;
+        const safeName = escapeHTML(name);
         const facilityId = feature.properties.id;
         const ratingSummary = getCachedRatingSummary(facilityId);
         const listRatingHtml = getListRatingHtml(facilityId, ratingSummary);
@@ -435,7 +451,7 @@ function renderMapPoints() {
         
         listItem.innerHTML = `
             <div class="list-item-header">
-                <div class="list-item-title">${name}</div>
+                <div class="list-item-title">${safeName}</div>
                 <div class="distance-badge">${distanceKm} km</div>
             </div>
             <div class="list-item-rating">${listRatingHtml}</div>
@@ -444,7 +460,7 @@ function renderMapPoints() {
                 <a href="${mapsUrl}" target="_blank" class="btn-action-small btn-directions" onclick="event.stopPropagation();">
                     <span class="material-symbols-outlined" style="font-size: 16px;">directions</span> Directions
                 </a>
-                <button class="btn-action-small btn-rate" onclick="event.stopPropagation(); openModal('${facilityId}', '${name.replace(/'/g, "\\'")}')">
+                <button class="btn-action-small btn-rate" onclick="event.stopPropagation(); openModal('${facilityId}', '${safeName.replace(/'/g, "\\'")}')">
                     <span class="material-symbols-outlined" style="font-size: 16px;">star</span> Rate
                 </button>
             </div>
@@ -452,7 +468,9 @@ function renderMapPoints() {
         
         listItem.onclick = () => {
             map.flyTo([lat, lng], 16, { animate: true, duration: 1 });
-            feature.layerReference.openPopup();
+            if (feature.layerRef) {
+                feature.layerRef.openPopup();
+            }
         };
         
         listContainer.appendChild(listItem);
@@ -472,13 +490,16 @@ function getCachedRatingSummary(facilityId) {
     return summary;
 }
 
-function getRatingHtml(facilityId, name, summary) {
+function getRatingHtml(facilityId, safeName, summary) {
     if (!summary || !summary.review_count) {
-        return `<span style="font-size:13px; font-weight:600;"><span class="material-symbols-outlined" style="font-size:14px; vertical-align:middle;">star_outline</span> No reviews yet</span>`;
+        return `<div class="empty-state-rating" onclick="openModal('${facilityId}', '${safeName.replace(/'/g, "\\'")}')">
+                    <span class="material-symbols-outlined">add_comment</span>
+                    <span>Be the first to review!</span>
+                </div>`;
     }
 
     const avg = Number(summary.avg_rating || 0).toFixed(1);
-    return `<span class="clickable-rating" onclick="openReviewsList('${facilityId}', '${name.replace(/'/g, "\\'")}')">
+    return `<span class="clickable-rating" onclick="openReviewsList('${facilityId}', '${safeName.replace(/'/g, "\\'")}')">
                 <span class="material-symbols-outlined" style="font-size:16px; color:#f59e0b;">star</span> ${avg} (${summary.review_count})
             </span>`;
 }
@@ -493,7 +514,7 @@ function getListRatingHtml(facilityId, summary) {
         return `<span class="pending">Loading rating...</span>`;
     }
 
-    return `<span class="empty">No reviews yet</span>`;
+    return `<span class="empty-actionable">No reviews - Add one!</span>`;
 }
 
 async function fetchRatingSummaries(facilityIds, force = false) {
@@ -646,9 +667,43 @@ async function openReviewsList(facilityId, name) {
     const container = document.getElementById('reviewsContainer');
     container.innerHTML = "Loading...";
     
-    const res = await fetch(`${BACKEND_URL}/api/reviews/${facilityId}`);
-    const data = await res.json();
-    container.innerHTML = data.reviews.map(r => `<div class="review-card"><b style="color:#f59e0b;">★ ${r.rating}</b><br>${r.review_text.replace(/</g, "<").replace(/>/g, ">")}</div>`).join('') || "No text reviews.";
+    try {
+        const res = await fetch(`${BACKEND_URL}/api/reviews/${facilityId}`);
+        if (!res.ok) {
+            container.textContent = "Reviews unavailable right now.";
+            return;
+        }
+
+        const data = await res.json();
+        const reviews = Array.isArray(data.reviews) ? data.reviews : [];
+
+        container.innerHTML = "";
+        if (reviews.length === 0) {
+            container.textContent = "No text reviews.";
+            return;
+        }
+
+        reviews.forEach((review) => {
+            const card = document.createElement('div');
+            card.className = 'review-card';
+
+            const ratingEl = document.createElement('b');
+            ratingEl.style.color = '#f59e0b';
+            const safeRating = Number.isFinite(Number(review.rating)) ? Number(review.rating) : 0;
+            ratingEl.textContent = `★ ${safeRating}`;
+
+            const br = document.createElement('br');
+            const textNode = document.createTextNode(review.review_text || '');
+
+            card.appendChild(ratingEl);
+            card.appendChild(br);
+            card.appendChild(textNode);
+            container.appendChild(card);
+        });
+    } catch (error) {
+        console.error('Error loading reviews:', error);
+        container.textContent = "Reviews unavailable right now.";
+    }
 }
 function closeReviewsList() { document.getElementById('reviewsListModal').style.display = 'none'; }
 
