@@ -23,3 +23,21 @@ This document outlines potential future enhancements, features, and architectura
 ### 5. Photo Uploads for Reviews
 *   **The Idea:** Allowing users to upload photos proves cleanliness and condition, which is a high priority for users.
 *   **Implementation:** Add an image upload button to the review modal. Send the payload to the API (which will need an update to handle `multipart/form-data` and cloud storage like S3).
+
+## 💰 Monetization Strategy
+
+### 1. User Tips ("Buy me a Coffee")
+*   **The Idea:** LooFinder provides a massive public utility. Many users (especially parents, delivery drivers, or travelers in a pinch) would gladly tip a small amount as a "thank you" for saving them in an emergency.
+*   **Implementation:** Add a small, unobtrusive "Support LooFinder" or "Buy us a Toilet Roll 🧻" button in the sidebar linking to Stripe Checkout, Patreon, or BuyMeACoffee.
+
+### 2. Sponsored Pins (B2B Lead Generation)
+*   **The Idea:** Coffee shops, fast-food chains, and malls often require you to be a "paying customer" to use their restrooms. 
+*   **Implementation:** Charge local businesses a small monthly fee to feature their location as a "Premium Pin" (e.g., a gold marker). This drives foot traffic to their business from users who will likely buy a coffee or snack in exchange for restroom access.
+
+### 3. LooFinder Plus (Freemium Subscription)
+*   **The Idea:** Keep the essential emergency map free, but charge a small fee ($1.99/mo) for power-user features.
+*   **Implementation:** Put features like Offline Maps (PWA downloads), advanced filtering (e.g., "Keypad Code required"), and an ad-free experience behind a subscription paywall.
+
+### 4. City Council Data Licensing
+*   **The Idea:** The crowdsourced data LooFinder collects on the state of public infrastructure is highly valuable.
+*   **Implementation:** Sell aggregated, anonymized reporting dashboards to urban planners, city councils, and tourism boards so they can identify which parks need more janitorial funding or where new facilities should be built.
