@@ -238,26 +238,7 @@ function elementsToFeatures(elements) {
         .filter(Boolean);
 }
 
-function scheduleProgressiveRender(loadToken, delayMs = 350) {
-    if (loadToken !== currentLoadToken) {
-        return;
-    }
-
-    if (progressiveRenderTimer) {
-        return;
-    }
-
-    progressiveRenderTimer = setTimeout(() => {
-        progressiveRenderTimer = null;
-        if (loadToken === currentLoadToken) {
-            renderMapPoints();
-        }
-    }, delayMs);
-}
-
 async function resolveNamesInBackground(loadToken, features) {
-    let changedCount = 0;
-
     for (const feature of features) {
         if (!feature || !feature.properties) continue;
         if (loadToken !== currentLoadToken) return;
@@ -269,13 +250,33 @@ async function resolveNamesInBackground(loadToken, features) {
 
         if (resolvedName && props.Name !== resolvedName) {
             props.Name = resolvedName;
-            changedCount += 1;
-            scheduleProgressiveRender(loadToken);
-        }
-    }
+            
+            // Direct DOM update instead of full render
+            const listTitleEl = document.getElementById(`list-title-${props.id}`);
+            if (listTitleEl) listTitleEl.innerText = escapeHTML(resolvedName);
+            
+            // Re-bind popup
+            if (feature.layerRef) {
+                const safeName = escapeHTML(resolvedName);
+                const safeId = "rt-" + props.id; 
+                const lat = feature.geometry.coordinates[1];
+                const lng = feature.geometry.coordinates[0];
+                const mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=walking`;
 
-    if (loadToken === currentLoadToken && changedCount > 0) {
-        renderMapPoints();
+                feature.layerRef.setPopupContent(`
+                    <div class="popup-title">${safeName}</div>
+                    <div id="${safeId}" class="popup-rating">${getRatingHtml(props.id, safeName, getCachedRatingSummary(props.id))}</div>
+                    <div style="display: flex; gap: 8px;">
+                        <a href="${mapsUrl}" target="_blank" class="btn-action-small btn-directions" style="flex:1;">
+                            <span class="material-symbols-outlined" style="font-size: 16px;">directions</span> Directions
+                        </a>
+                        <button class="btn-action-small btn-rate" style="flex:1;" onclick="openModal('${props.id}', '${safeName.replace(/'/g, "\\'")}')">
+                            <span class="material-symbols-outlined" style="font-size: 16px;">star</span> Rate
+                        </button>
+                    </div>
+                `);
+            }
+        }
     }
 }
 
@@ -284,35 +285,36 @@ async function loadDataForCurrentBounds() {
     document.getElementById('loader').style.display = 'flex';
     document.getElementById('btn-search-area').style.display = 'none';
 
-    if (progressiveRenderTimer) {
-        clearTimeout(progressiveRenderTimer);
-        progressiveRenderTimer = null;
-    }
-
     const loadToken = ++currentLoadToken;
-    
-    // Get bounds outside try so it's available in catch
     const bounds = map.getBounds();
     
     try {
-        const nodeQuery = `
-            [out:json][timeout:8];
-            node["amenity"="toilets"](${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()});
-            out;
+        const query = `
+            [out:json][timeout:15];
+            (
+              node["amenity"="toilets"](${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()});
+              way["amenity"="toilets"](${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()});
+              relation["amenity"="toilets"](${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()});
+            );
+            out center;
         `;
 
         let data = null;
         try {
-            data = await fetchOverpassJson(nodeQuery);
+            data = await fetchOverpassJson(query);
         } catch (primaryError) {
             const center = map.getCenter();
             const fallbackQuery = `
-                [out:json][timeout:8];
-                node["amenity"="toilets"](around:2500,${center.lat},${center.lng});
-                out;
+                [out:json][timeout:15];
+                (
+                  node["amenity"="toilets"](around:2500,${center.lat},${center.lng});
+                  way["amenity"="toilets"](around:2500,${center.lat},${center.lng});
+                  relation["amenity"="toilets"](around:2500,${center.lat},${center.lng});
+                );
+                out center;
             `;
             data = await fetchOverpassJson(fallbackQuery);
-            console.warn("BBox node query failed, used wider center-radius fallback.", primaryError);
+            console.warn("BBox query failed, used wider center-radius fallback.", primaryError);
         }
 
         if (loadToken !== currentLoadToken) {
@@ -326,40 +328,6 @@ async function loadDataForCurrentBounds() {
             console.error("Background name resolution failed:", error);
         });
 
-        const waysRelationsQuery = `
-            [out:json][timeout:10];
-            (
-              way["amenity"="toilets"](${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()});
-              relation["amenity"="toilets"](${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()});
-            );
-            out center;
-        `;
-
-        fetchOverpassJson(waysRelationsQuery)
-            .then((extraData) => {
-                if (loadToken !== currentLoadToken) {
-                    return;
-                }
-
-                const currentIds = new Set(allToiletData.features.map((f) => f.properties.id));
-                const extraFeatures = elementsToFeatures(extraData.elements || []).filter(
-                    (feature) => !currentIds.has(feature.properties.id)
-                );
-
-                if (extraFeatures.length === 0) {
-                    return;
-                }
-
-                allToiletData.features = dedupeFeatures([...allToiletData.features, ...extraFeatures]);
-                renderMapPoints();
-
-                resolveNamesInBackground(loadToken, extraFeatures).catch((error) => {
-                    console.error("Background name resolution for extra features failed:", error);
-                });
-            })
-            .catch((error) => {
-                console.warn("Supplemental ways/relations query failed:", error);
-            });
     } catch (e) { 
         console.error("Overpass API Error:", e); 
         showToast("Error finding toilets in this area. Try zooming in or moving to a different area.", "error");
@@ -392,7 +360,20 @@ function renderMapPoints() {
 
     fetchRatingSummaries(displayFeatures.map(f => f.properties.id)).then((updated) => {
         if (updated) {
-            renderMapPoints();
+            displayFeatures.forEach(feature => {
+                const facilityId = feature.properties.id;
+                const summary = getCachedRatingSummary(facilityId);
+                if (summary) {
+                    const listRatingEl = document.getElementById(`list-rating-${facilityId}`);
+                    if (listRatingEl) {
+                        listRatingEl.innerHTML = getListRatingHtml(facilityId, summary);
+                    }
+                    const popupRatingEl = document.getElementById(`rt-${facilityId}`);
+                    if (popupRatingEl) {
+                        popupRatingEl.innerHTML = getRatingHtml(facilityId, escapeHTML(feature.properties.Name), summary);
+                    }
+                }
+            });
         }
     });
 
@@ -451,10 +432,10 @@ function renderMapPoints() {
         
         listItem.innerHTML = `
             <div class="list-item-header">
-                <div class="list-item-title">${safeName}</div>
+                <div id="list-title-${facilityId}" class="list-item-title">${safeName}</div>
                 <div class="distance-badge">${distanceKm} km</div>
             </div>
-            <div class="list-item-rating">${listRatingHtml}</div>
+            <div id="list-rating-${facilityId}" class="list-item-rating">${listRatingHtml}</div>
             <div class="list-item-features">${accIcon} ${babyIcon}</div>
             <div class="list-item-actions">
                 <a href="${mapsUrl}" target="_blank" class="btn-action-small btn-directions" onclick="event.stopPropagation();">
