@@ -17,10 +17,19 @@ let userLocationMarker = null;
 let currentMapLayer = null;
 let activeFilters = { accessible: false, baby: false };
 let disableFacilityNameSaves = false;
+let backendUnavailable = false;
 let currentLoadToken = 0;
 let progressiveRenderTimer = null;
 const RATING_SUMMARY_TTL_MS = 60 * 1000;
 const ratingSummaryInFlight = new Set();
+
+function markBackendUnavailable(reason) {
+    if (!backendUnavailable) {
+        console.warn(`Backend unavailable (${reason}). Running in limited mode.`);
+    }
+    backendUnavailable = true;
+    disableFacilityNameSaves = true;
+}
 
 // Track unique ID alongside the name
 let currentReviewFacilityId = "";
@@ -54,15 +63,26 @@ const nameCache = {}; // Cache resolved names to avoid repeated API calls
 
 // Get resolved name from backend (cached in database)
 async function getResolvedNameFromBackend(facilityId) {
+    if (backendUnavailable) {
+        return null;
+    }
+
     try {
         const response = await fetch(`${BACKEND_URL}/api/facilities/${facilityId}`);
+        if (!response.ok) {
+            if (response.status >= 500) {
+                markBackendUnavailable('facility lookup');
+            }
+            return null;
+        }
+
         const data = await response.json();
         if (data.facility && data.facility.resolved_name) {
             return data.facility.resolved_name;
         }
         return null;
-    } catch (e) {
-        console.error("Error fetching resolved name from backend:", e);
+    } catch {
+        markBackendUnavailable('facility lookup');
         return null;
     }
 }
@@ -100,7 +120,7 @@ async function geocodeAddress(lat, lon) {
 
 // Save resolved name to backend for caching
 async function saveResolvedNameToBackend(facilityId, name, lat, lon) {
-    if (disableFacilityNameSaves) {
+    if (disableFacilityNameSaves || backendUnavailable) {
         return;
     }
 
@@ -121,13 +141,12 @@ async function saveResolvedNameToBackend(facilityId, name, lat, lon) {
 
         if (!response.ok) {
             if (response.status >= 500) {
-                disableFacilityNameSaves = true;
-                console.warn("Disabling facility-name saves due to backend 5xx responses.");
+                markBackendUnavailable('facility save');
             }
             return;
         }
-    } catch (e) {
-        console.error("Error saving resolved name:", e);
+    } catch {
+        markBackendUnavailable('facility save');
     }
 }
 
@@ -499,6 +518,10 @@ function getListRatingHtml(facilityId, summary) {
 }
 
 async function fetchRatingSummaries(facilityIds, force = false) {
+    if (backendUnavailable) {
+        return false;
+    }
+
     const ids = Array.from(new Set((facilityIds || []).filter(Boolean).map(id => id.toString())));
     if (ids.length === 0) {
         return false;
@@ -525,6 +548,9 @@ async function fetchRatingSummaries(facilityIds, force = false) {
     try {
         const response = await fetch(`${BACKEND_URL}/api/reviews-summary?ids=${encodeURIComponent(idsToFetch.join(','))}`);
         if (!response.ok) {
+            if (response.status >= 500) {
+                markBackendUnavailable('rating summaries');
+            }
             return false;
         }
 
@@ -542,8 +568,8 @@ async function fetchRatingSummaries(facilityIds, force = false) {
         });
 
         return true;
-    } catch (error) {
-        console.error("Error fetching rating summaries:", error);
+    } catch {
+        markBackendUnavailable('rating summaries');
         return false;
     } finally {
         idsToFetch.forEach((id) => ratingSummaryInFlight.delete(id));
