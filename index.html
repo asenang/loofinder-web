@@ -21,6 +21,9 @@
     <div id="toast-container" class="toast-container"></div>
 
     <div id="loader"><div class="spinner"></div> Fetching facilities...</div>
+    <button id="theme-toggle" class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle dark mode">
+        <span id="theme-toggle-icon" class="material-symbols-outlined">dark_mode</span>
+    </button>
     <button id="btn-search-area" onclick="triggerSearchArea()"><span class="material-symbols-outlined" style="vertical-align: middle; font-size: 18px;">refresh</span> Search this area</button>
 
     <div id="reviewModal" class="modal-overlay">
@@ -37,6 +40,20 @@
             <div class="modal-actions">
                 <button class="btn-cancel" onclick="closeModal()">Cancel</button>
                 <button class="btn-primary" style="flex: 2;" onclick="submitReview()">Submit</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="feedbackModal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-title">Send Feedback</div>
+            <div class="feedback-form">
+                <input id="feedbackEmail" type="email" placeholder="Your email (optional)" maxlength="255" />
+                <textarea id="feedbackText" placeholder="Tell us what you think..." maxlength="2000"></textarea>
+            </div>
+            <div class="modal-actions">
+                <button class="btn-cancel" onclick="closeFeedbackModal()">Cancel</button>
+                <button class="btn-primary" style="flex: 2;" onclick="submitFeedback()">Send</button>
             </div>
         </div>
     </div>
@@ -83,14 +100,25 @@
 
     <div id="map"></div>
 
+    <div id="support-menu-mobile" class="support-menu-mobile">
+        <button id="support-menu-toggle" class="support-menu-toggle" type="button" aria-label="Open support menu" aria-expanded="false">
+            <span class="support-menu-icon" aria-hidden="true">☰</span>
+        </button>
+        <div id="support-menu-dropdown" class="support-menu-dropdown" aria-hidden="true">
+            <a href="https://www.buymeacoffee.com/loofinder" target="_blank" rel="noopener noreferrer">Buy Me 🧻</a>
+            <button type="button" class="support-menu-action" onclick="openFeedbackModal()">Feedback</button>
+        </div>
+    </div>
+
     <a href="https://www.buymeacoffee.com/loofinder" class="support-button-floating" target="_blank">
-        <span class="support-text">Buy Me Toilet Paper</span>
+        <span class="support-text">Buy Me 🧻</span>
+
         <span class="icon-jar-mask">
             <img src="assets/logos/tp_jar_icon_2.png" alt="Tip Jar" class="icon-jar" />
         </span>
     </a>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="app.js?v=8.1"></script>
+    <script src="app.js?v=8.4"></script>
 </body>
 </html>

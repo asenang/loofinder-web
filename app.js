@@ -1,6 +1,96 @@
 const map = L.map('map', { zoomControl: false }).setView([-37.8300, 144.8500], 14);
 const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-L.tileLayer(`https://{s}.basemaps.cartocdn.com/${prefersDark ? 'dark_all' : 'light_all'}/{z}/{x}/{y}{r}.png`, { maxZoom: 20 }).addTo(map);
+const savedTheme = localStorage.getItem('loofinder-theme');
+let themeMode = savedTheme === 'dark' || savedTheme === 'light'
+    ? savedTheme
+    : (prefersDark ? 'dark' : 'light');
+let baseMapLayer = null;
+
+function applyTheme(theme, persist = true) {
+    themeMode = theme === 'dark' ? 'dark' : 'light';
+    document.documentElement.classList.toggle('theme-dark', themeMode === 'dark');
+
+    const iconEl = document.getElementById('theme-toggle-icon');
+    if (iconEl) {
+        iconEl.textContent = themeMode === 'dark' ? 'light_mode' : 'dark_mode';
+    }
+
+    if (baseMapLayer) {
+        map.removeLayer(baseMapLayer);
+    }
+
+    baseMapLayer = L.tileLayer(
+        `https://{s}.basemaps.cartocdn.com/${themeMode === 'dark' ? 'dark_all' : 'light_all'}/{z}/{x}/{y}{r}.png`,
+        { maxZoom: 20 }
+    ).addTo(map);
+
+    if (persist) {
+        localStorage.setItem('loofinder-theme', themeMode);
+    }
+}
+
+function toggleTheme() {
+    applyTheme(themeMode === 'dark' ? 'light' : 'dark');
+}
+
+applyTheme(themeMode, false);
+
+const supportMenuMobileEl = document.getElementById('support-menu-mobile');
+const supportMenuToggleEl = document.getElementById('support-menu-toggle');
+
+function isMobileViewport() {
+    return window.matchMedia('(max-width: 768px)').matches;
+}
+
+function setSupportMenuOpen(isOpen) {
+    if (!supportMenuMobileEl || !supportMenuToggleEl) {
+        return;
+    }
+
+    supportMenuMobileEl.classList.toggle('open', isOpen);
+    supportMenuToggleEl.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+
+    const dropdownEl = document.getElementById('support-menu-dropdown');
+    if (dropdownEl) {
+        dropdownEl.setAttribute('aria-hidden', isOpen ? 'false' : 'true');
+    }
+}
+
+function syncSupportMenuForViewport() {
+    if (!supportMenuMobileEl || !supportMenuToggleEl) {
+        return;
+    }
+
+    if (!isMobileViewport()) {
+        setSupportMenuOpen(false);
+        return;
+    }
+}
+
+if (supportMenuToggleEl) {
+    supportMenuToggleEl.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+
+        const isOpen = supportMenuMobileEl && supportMenuMobileEl.classList.contains('open');
+        setSupportMenuOpen(!isOpen);
+    });
+}
+
+document.addEventListener('click', (event) => {
+    if (!supportMenuMobileEl || !supportMenuMobileEl.classList.contains('open')) {
+        return;
+    }
+
+    if (supportMenuMobileEl.contains(event.target)) {
+        return;
+    }
+
+    setSupportMenuOpen(false);
+});
+
+window.addEventListener('resize', syncSupportMenuForViewport);
+syncSupportMenuForViewport();
 
 // Environment Configuration
 const IS_LOCAL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname === '';
@@ -20,6 +110,7 @@ let disableFacilityNameSaves = false;
 let backendUnavailable = false;
 let currentLoadToken = 0;
 let progressiveRenderTimer = null;
+let feedbackSubmitting = false;
 const RATING_SUMMARY_TTL_MS = 60 * 1000;
 const ratingSummaryInFlight = new Set();
 
@@ -650,6 +741,80 @@ function openModal(id, name) {
 function closeModal() { document.getElementById('reviewModal').style.display = 'none'; }
 function setRating(r) { currentRating = r; updateStarsUI(); }
 function updateStarsUI() { document.querySelectorAll('.star').forEach(s => s.classList.toggle('selected', parseInt(s.dataset.value) <= currentRating)); }
+
+function openFeedbackModal() {
+    const modalEl = document.getElementById('feedbackModal');
+    if (!modalEl) {
+        return;
+    }
+
+    setSupportMenuOpen(false);
+    modalEl.style.display = 'flex';
+}
+
+function closeFeedbackModal() {
+    const modalEl = document.getElementById('feedbackModal');
+    if (!modalEl) {
+        return;
+    }
+
+    modalEl.style.display = 'none';
+}
+
+async function submitFeedback() {
+    if (feedbackSubmitting) {
+        return;
+    }
+
+    const messageEl = document.getElementById('feedbackText');
+    const emailEl = document.getElementById('feedbackEmail');
+    const message = (messageEl?.value || '').trim();
+    const email = (emailEl?.value || '').trim();
+
+    if (message.length < 10) {
+        showToast('Please add at least 10 characters.', 'error');
+        return;
+    }
+
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        showToast('Please enter a valid email.', 'error');
+        return;
+    }
+
+    feedbackSubmitting = true;
+    try {
+        const res = await fetch(`${BACKEND_URL}/api/feedback`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                email,
+                message,
+                context: {
+                    page: window.location.href,
+                    user_agent: navigator.userAgent,
+                    theme: themeMode
+                }
+            })
+        });
+
+        if (!res.ok) {
+            throw new Error('request failed');
+        }
+
+        showToast('Feedback sent. Thank you!', 'success');
+        if (messageEl) {
+            messageEl.value = '';
+        }
+        if (emailEl) {
+            emailEl.value = '';
+        }
+        closeFeedbackModal();
+    } catch (e) {
+        showToast('Unable to send feedback right now.', 'error');
+    } finally {
+        feedbackSubmitting = false;
+    }
+}
 
 async function submitReview() {
     if (currentRating === 0) return showToast("Pick a star!", "error");
