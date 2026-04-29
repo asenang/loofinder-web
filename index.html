@@ -68,6 +68,24 @@
         </div>
     </div>
 
+    <div id="locationErrorModal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-title">
+                <span class="material-symbols-outlined" style="vertical-align: middle; margin-right: 8px; color: #f59e0b;">location_off</span>
+                Location Not Supported
+            </div>
+            <div class="location-error-content">
+                <p><strong>LooFinder is currently only available in Australia.</strong></p>
+                <p>We detected that you're accessing this app from outside Australia, so you may not find accurate toilet facility data in your area.</p>
+                <p>LooFinder uses Australian OpenStreetMap data and is optimized for Australian locations only.</p>
+            </div>
+            <div class="modal-actions">
+                <button class="btn-cancel" onclick="window.location.href='https://www.google.com/search?q=public+toilets+near+me'">Find Local Alternatives</button>
+                <button class="btn-primary" style="flex: 2;" onclick="continueAnyway()">Continue Anyway</button>
+            </div>
+        </div>
+    </div>
+
     <div class="sidebar collapsed">
         <div class="mobile-handle" onclick="toggleSidebar()">
             <div class="drag-line"></div>

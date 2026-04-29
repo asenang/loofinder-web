@@ -1,10 +1,113 @@
+// Initialize map with default coordinates (will be updated to user location if available)
 const map = L.map('map', { zoomControl: false }).setView([-37.8300, 144.8500], 14);
-const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
 const savedTheme = localStorage.getItem('loofinder-theme');
-let themeMode = savedTheme === 'dark' || savedTheme === 'light'
-    ? savedTheme
-    : (prefersDark ? 'dark' : 'light');
 let baseMapLayer = null;
+let userLat = -37.8300; // Default to Melbourne
+let userLng = 144.8500;  // Default to Melbourne
+let themeUpdateInterval = null;
+
+// Calculate sunrise/sunset times based on location and date
+function calculateSunriseSunset(lat, lng, date) {
+    // Simple approximation using sunrise equation
+    const dayOfYear = Math.floor((date - new Date(date.getFullYear(), 0, 0)) / 86400000);
+    
+    // Solar declination angle (approximate)
+    const P = Math.asin(0.39795 * Math.cos(0.98563 * (dayOfYear - 173) * Math.PI / 180));
+    
+    // Hour angle for sunrise/sunset
+    const hourAngle = Math.acos((Math.sin(-0.01454) - Math.sin(lat * Math.PI / 180) * Math.sin(P)) / 
+                               (Math.cos(lat * Math.PI / 180) * Math.cos(P)));
+    
+    // Convert to hours (solar time)
+    const sunriseHour = 12 - hourAngle * 12 / Math.PI;
+    const sunsetHour = 12 + hourAngle * 12 / Math.PI;
+    
+    // Adjust for longitude (solar time correction)
+    const timeCorrection = lng / 15; // Each 15° of longitude = 1 hour difference
+    const localSunriseHour = sunriseHour + timeCorrection;
+    const localSunsetHour = sunsetHour + timeCorrection;
+    
+    return {
+        sunrise: new Date(date.setHours(localSunriseHour, 0, 0, 0)),
+        sunset: new Date(date.setHours(localSunsetHour, 0, 0, 0))
+    };
+}
+
+// Determine if it's currently nighttime based on location
+function isNighttime(lat, lng) {
+    const now = new Date();
+    const { sunrise, sunset } = calculateSunriseSunset(lat, lng, new Date(now));
+    
+    // Add some buffer around sunset (30 minutes before to 30 minutes after)
+    const sunsetBuffer = 30 * 60 * 1000; // 30 minutes in milliseconds
+    const sunsetTime = new Date(sunset.getTime() + sunsetBuffer);
+    
+    return now < sunrise || now > sunsetTime;
+}
+
+// Get theme based on time of day and location
+function getTimeBasedTheme(lat, lng) {
+    return isNighttime(lat, lng) ? 'dark' : 'light';
+}
+
+// Check if coordinates are within Australia (approximate bounding box)
+function isWithinAustralia(lat, lng) {
+    // Australia approximate bounding box
+    const AUS_BOUNDS = {
+        north: -10.0,   // Northern tip (Cape York)
+        south: -43.5,   // Southern tip (Tasmania)
+        east: 153.5,    // Easternmost point (Cape Byron)
+        west: 113.0     // Westernmost point (Western Australia)
+    };
+    
+    return lat >= AUS_BOUNDS.south && 
+           lat <= AUS_BOUNDS.north && 
+           lng >= AUS_BOUNDS.west && 
+           lng <= AUS_BOUNDS.east;
+}
+
+// Show location error modal for users outside Australia
+function showLocationErrorModal() {
+    const modalEl = document.getElementById('locationErrorModal');
+    if (modalEl) {
+        modalEl.style.display = 'flex';
+    }
+}
+
+// Hide location error modal
+function hideLocationErrorModal() {
+    const modalEl = document.getElementById('locationErrorModal');
+    if (modalEl) {
+        modalEl.style.display = 'none';
+    }
+}
+
+// Continue anyway despite location warning
+function continueAnyway() {
+    hideLocationErrorModal();
+    // User has chosen to continue, don't show this warning again for this session
+    sessionStorage.setItem('locationWarningDismissed', 'true');
+}
+
+// Update theme based on current time and location
+function updateTimeBasedTheme() {
+    const timeBasedTheme = getTimeBasedTheme(userLat, userLng);
+    
+    // Only update if user hasn't manually set a theme preference
+    if (!savedTheme || (savedTheme !== 'dark' && savedTheme !== 'light')) {
+        applyTheme(timeBasedTheme, false); // Don't persist time-based theme
+    }
+}
+
+// Initialize theme mode
+let themeMode;
+if (savedTheme === 'dark' || savedTheme === 'light') {
+    // User has manually set a preference
+    themeMode = savedTheme;
+} else {
+    // Use time-based theme as default
+    themeMode = getTimeBasedTheme(userLat, userLng);
+}
 
 function applyTheme(theme, persist = true) {
     themeMode = theme === 'dark' ? 'dark' : 'light';
@@ -720,12 +823,90 @@ function findNearest() {
             userLocationMarker = L.marker([lat, lng], { icon }).addTo(map);
         }
         setTimeout(loadDataForCurrentBounds, 1000);
-    }, () => showToast("Location denied.", "error"));
+    }, (error) => {
+        // If user denies location, show a toast and load data for current view
+        if (error.code === error.PERMISSION_DENIED) {
+            showToast("Location denied. Showing toilets for default area.", "error");
+        } else {
+            showToast("Unable to get your location.", "error");
+        }
+        // Load data for the current (default) view
+        setTimeout(loadDataForCurrentBounds, 500);
+    });
+}
+
+// Initialize map with user location on page load
+function initializeWithUserLocation() {
+    if (!navigator.geolocation) {
+        showToast("Geolocation not supported by your browser.", "error");
+        setTimeout(loadDataForCurrentBounds, 500);
+        return;
+    }
+    
+    navigator.geolocation.getCurrentPosition(
+        (pos) => {
+            const lat = pos.coords.latitude;
+            const lng = pos.coords.longitude;
+            
+            // Check if user is within Australia
+            if (!isWithinAustralia(lat, lng)) {
+                // Check if user has already dismissed the warning for this session
+                const warningDismissed = sessionStorage.getItem('locationWarningDismissed');
+                if (!warningDismissed) {
+                    showLocationErrorModal();
+                }
+            }
+            
+            // Update user coordinates for theme calculation
+            userLat = lat;
+            userLng = lng;
+            
+            // Set map to user location immediately
+            map.setView([lat, lng], 15);
+            
+            // Add user location marker
+            const icon = L.divIcon({ className: 'custom-user-marker', html: '<div class="user-location-dot"></div>', iconSize: [14, 14], iconAnchor: [7, 7] });
+            userLocationMarker = L.marker([lat, lng], { icon }).addTo(map);
+            
+            // Update theme based on new location and start periodic checks
+            updateTimeBasedTheme();
+            startPeriodicThemeUpdates();
+            
+            // Load data for user's area
+            setTimeout(loadDataForCurrentBounds, 1000);
+        },
+        (error) => {
+            // If user denies location or there's an error, keep default view and load data
+            if (error.code === error.PERMISSION_DENIED) {
+                showToast("Location denied. Showing toilets for Melbourne area.", "error");
+            } else {
+                showToast("Unable to get your location. Showing default area.", "error");
+            }
+            
+            // Start periodic theme updates with default coordinates
+            startPeriodicThemeUpdates();
+            
+            // Load data for the default (Melbourne) view
+            setTimeout(loadDataForCurrentBounds, 500);
+        }
+    );
+}
+
+// Start periodic theme updates to check for day/night changes
+function startPeriodicThemeUpdates() {
+    // Clear any existing interval
+    if (themeUpdateInterval) {
+        clearInterval(themeUpdateInterval);
+    }
+    
+    // Check every 5 minutes for theme changes
+    themeUpdateInterval = setInterval(updateTimeBasedTheme, 5 * 60 * 1000);
 }
 
 map.on('moveend', () => { document.getElementById('btn-search-area').style.display = 'block'; });
 function triggerSearchArea() { loadDataForCurrentBounds(); }
 
+// ... (rest of the code remains the same)
 // --- Modals & Filters ---
 function toggleFilter(t) { activeFilters[t] = !activeFilters[t]; document.getElementById('chip-'+t).classList.toggle('active'); renderMapPoints(); }
 
@@ -879,7 +1060,7 @@ async function openReviewsList(facilityId, name) {
 }
 function closeReviewsList() { document.getElementById('reviewsListModal').style.display = 'none'; }
 
-map.whenReady(() => findNearest());
+map.whenReady(() => initializeWithUserLocation());
 
 // --- Mobile Drag-to-Expand Logic ---
 const sidebarElement = document.querySelector('.sidebar');

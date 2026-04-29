@@ -243,6 +243,26 @@ button.btn-rate, .btn-rate { background: #f1f5f9; color: #4a5568 !important; bor
 .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.4); z-index: 3000; justify-content: center; align-items: center; }
 .modal-content { background: white; padding: 24px; border-radius: 16px; width: 90%; max-width: 400px; box-shadow: 0 10px 40px rgba(0,0,0,0.2); }
 .modal-title { font-size: 18px; font-weight: 700; margin-bottom: 16px; color: #2c3e50; }
+
+/* Location Error Modal Styles */
+.location-error-content {
+    margin-bottom: 24px;
+}
+
+.location-error-content p {
+    margin-bottom: 12px;
+    line-height: 1.5;
+    color: #5a6c7d;
+}
+
+.location-error-content p:last-child {
+    margin-bottom: 0;
+}
+
+.location-error-content strong {
+    color: #2c3e50;
+    font-weight: 600;
+}
 .stars { display: flex; flex-direction: row-reverse; justify-content: flex-end; gap: 8px; margin-bottom: 16px; }
 .star { font-size: 28px; color: #cbd5e1; cursor: pointer; transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), color 0.2s; display: inline-block; }
 .star:active { transform: scale(0.8); }
