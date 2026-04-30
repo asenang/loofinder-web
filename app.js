@@ -535,7 +535,7 @@ async function loadDataForCurrentBounds() {
         }
 
         allToiletData.features = dedupeFeatures(elementsToFeatures(data.elements || []));
-        renderMapPoints();
+        await renderMapPoints();
 
         resolveNamesInBackground(loadToken, allToiletData.features).catch((error) => {
             console.error("Background name resolution failed:", error);
@@ -571,7 +571,19 @@ async function renderMapPoints() {
 
     displayFeatures.sort((a,b) => a.properties.dist - b.properties.dist);
 
-    await fetchRatingSummaries(displayFeatures.map(f => f.properties.id));
+    // Render pins immediately, then backfill ratings once the fetch resolves
+    fetchRatingSummaries(displayFeatures.map(f => f.properties.id)).then(() => {
+        displayFeatures.forEach(feature => {
+            const facilityId = feature.properties.id;
+            const summary = getCachedRatingSummary(facilityId);
+            if (summary) {
+                const listRatingEl = document.getElementById(`list-rating-${facilityId}`);
+                if (listRatingEl) listRatingEl.innerHTML = getListRatingHtml(facilityId, summary);
+                const popupRatingEl = document.getElementById(`rt-${facilityId}`);
+                if (popupRatingEl) popupRatingEl.innerHTML = getRatingHtml(facilityId, escapeHTML(feature.properties.Name), summary);
+            }
+        });
+    });
 
     currentMapLayer = L.geoJSON({type: "FeatureCollection", features: displayFeatures}, {
         pointToLayer: function (feature, latlng) {
