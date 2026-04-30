@@ -550,7 +550,7 @@ async function loadDataForCurrentBounds() {
 }
 
 // --- Map & Sidebar Rendering ---
-function renderMapPoints() {
+async function renderMapPoints() {
     if (currentMapLayer) map.removeLayer(currentMapLayer);
     const listContainer = document.getElementById('facility-list');
     listContainer.innerHTML = '';
@@ -571,24 +571,7 @@ function renderMapPoints() {
 
     displayFeatures.sort((a,b) => a.properties.dist - b.properties.dist);
 
-    fetchRatingSummaries(displayFeatures.map(f => f.properties.id)).then((updated) => {
-        if (updated) {
-            displayFeatures.forEach(feature => {
-                const facilityId = feature.properties.id;
-                const summary = getCachedRatingSummary(facilityId);
-                if (summary) {
-                    const listRatingEl = document.getElementById(`list-rating-${facilityId}`);
-                    if (listRatingEl) {
-                        listRatingEl.innerHTML = getListRatingHtml(facilityId, summary);
-                    }
-                    const popupRatingEl = document.getElementById(`rt-${facilityId}`);
-                    if (popupRatingEl) {
-                        popupRatingEl.innerHTML = getRatingHtml(facilityId, escapeHTML(feature.properties.Name), summary);
-                    }
-                }
-            });
-        }
-    });
+    await fetchRatingSummaries(displayFeatures.map(f => f.properties.id));
 
     currentMapLayer = L.geoJSON({type: "FeatureCollection", features: displayFeatures}, {
         pointToLayer: function (feature, latlng) {
