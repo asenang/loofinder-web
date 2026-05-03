@@ -6,43 +6,55 @@ let userLat = -37.8300; // Default to Melbourne
 let userLng = 144.8500;  // Default to Melbourne
 let themeUpdateInterval = null;
 
-// Calculate sunrise/sunset times based on location and date
+// Calculate sunrise/sunset times (UTC) for the given date using NOAA-style approximation.
+// Returns { sunrise, sunset } as Date objects in UTC. Null means polar day/night.
 function calculateSunriseSunset(lat, lng, date) {
-    // Simple approximation using sunrise equation
-    const dayOfYear = Math.floor((date - new Date(date.getFullYear(), 0, 0)) / 86400000);
-    
-    // Solar declination angle (approximate)
-    const P = Math.asin(0.39795 * Math.cos(0.98563 * (dayOfYear - 173) * Math.PI / 180));
-    
-    // Hour angle for sunrise/sunset
-    const hourAngle = Math.acos((Math.sin(-0.01454) - Math.sin(lat * Math.PI / 180) * Math.sin(P)) / 
-                               (Math.cos(lat * Math.PI / 180) * Math.cos(P)));
-    
-    // Convert to hours (solar time)
-    const sunriseHour = 12 - hourAngle * 12 / Math.PI;
-    const sunsetHour = 12 + hourAngle * 12 / Math.PI;
-    
-    // Adjust for longitude (solar time correction)
-    const timeCorrection = lng / 15; // Each 15° of longitude = 1 hour difference
-    const localSunriseHour = sunriseHour + timeCorrection;
-    const localSunsetHour = sunsetHour + timeCorrection;
-    
-    return {
-        sunrise: new Date(date.setHours(localSunriseHour, 0, 0, 0)),
-        sunset: new Date(date.setHours(localSunsetHour, 0, 0, 0))
+    const rad = Math.PI / 180;
+    const deg = 180 / Math.PI;
+
+    // Day of year (1-366), UTC-based to avoid TZ drift
+    const startOfYearUTC = Date.UTC(date.getUTCFullYear(), 0, 0);
+    const dayOfYear = Math.floor((date.getTime() - startOfYearUTC) / 86400000);
+
+    // Solar declination (radians)
+    const P = Math.asin(0.39795 * Math.cos(0.98563 * (dayOfYear - 173) * rad));
+
+    // Hour angle (radians). Argument can exceed [-1, 1] near poles -> polar day/night.
+    const cosH = (Math.sin(-0.83 * rad) - Math.sin(lat * rad) * Math.sin(P)) /
+                 (Math.cos(lat * rad) * Math.cos(P));
+    if (cosH > 1 || cosH < -1) {
+        return { sunrise: null, sunset: null };
+    }
+    const hourAngleDeg = Math.acos(cosH) * deg;
+
+    // Solar noon (UTC hours) at this longitude
+    const solarNoonUTC = 12 - lng / 15;
+    const sunriseUTC = solarNoonUTC - hourAngleDeg / 15;
+    const sunsetUTC = solarNoonUTC + hourAngleDeg / 15;
+
+    const toDate = (utcHours) => {
+        const ms = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()) +
+                   utcHours * 3600 * 1000;
+        return new Date(ms);
     };
+
+    return { sunrise: toDate(sunriseUTC), sunset: toDate(sunsetUTC) };
 }
 
 // Determine if it's currently nighttime based on location
 function isNighttime(lat, lng) {
     const now = new Date();
-    const { sunrise, sunset } = calculateSunriseSunset(lat, lng, new Date(now));
-    
-    // Add some buffer around sunset (30 minutes before to 30 minutes after)
-    const sunsetBuffer = 30 * 60 * 1000; // 30 minutes in milliseconds
-    const sunsetTime = new Date(sunset.getTime() + sunsetBuffer);
-    
-    return now < sunrise || now > sunsetTime;
+    const { sunrise, sunset } = calculateSunriseSunset(lat, lng, now);
+
+    // Polar day/night fallback: use latitude sign + month hemisphere heuristic
+    if (!sunrise || !sunset) {
+        const hour = now.getHours();
+        return hour < 6 || hour >= 19;
+    }
+
+    // 30 min buffer after sunset
+    const sunsetWithBuffer = new Date(sunset.getTime() + 30 * 60 * 1000);
+    return now < sunrise || now > sunsetWithBuffer;
 }
 
 // Get theme based on time of day and location
@@ -244,6 +256,42 @@ function escapeHTML(str) {
     );
 }
 
+// --- Safe facility-action registry ---------------------------------------
+// Rather than inlining facility names into JS string literals inside onclick
+// (fragile against backslashes, quotes, </script>, non-BMP chars), we keep a
+// map from facility_id -> name and dispatch via delegated click listeners
+// using [data-action] + [data-facility-id] attributes. data-* attrs only
+// require HTML escaping, which escapeHTML handles.
+const facilityNameRegistry = new Map();
+
+function rememberFacility(id, name) {
+    if (id == null) return;
+    facilityNameRegistry.set(String(id), name || "Public Toilet");
+}
+
+function getFacilityName(id) {
+    return facilityNameRegistry.get(String(id)) || "Public Toilet";
+}
+
+document.addEventListener('click', (event) => {
+    const target = event.target.closest('[data-action]');
+    if (!target) return;
+    const action = target.dataset.action;
+    const facilityId = target.dataset.facilityId;
+    if (!facilityId) return;
+    const name = getFacilityName(facilityId);
+
+    if (action === 'rate') {
+        event.preventDefault();
+        event.stopPropagation();
+        openModal(facilityId, name);
+    } else if (action === 'open-reviews') {
+        event.preventDefault();
+        event.stopPropagation();
+        openReviewsList(facilityId, name);
+    }
+});
+
 // Custom Map Pin
 const toiletIcon = L.divIcon({
     className: 'custom-pin',
@@ -281,92 +329,178 @@ async function getResolvedNameFromBackend(facilityId) {
     }
 }
 
-let lastNominatimCall = 0;
-// Geocode address from coordinates using Nominatim
-async function geocodeAddress(lat, lon) {
-    const now = Date.now();
-    const timeToWait = Math.max(0, 1000 - (now - lastNominatimCall));
-    if (timeToWait > 0) {
-        await new Promise(resolve => setTimeout(resolve, timeToWait));
-    }
-    lastNominatimCall = Date.now();
+// Sticky flags for endpoints that may not exist on older API deployments.
+// If the bulk/geocode endpoints 404 we fall back to the legacy per-id GET
+// and direct-to-Nominatim paths so name resolution keeps working until the
+// API is redeployed.
+let _bulkFacilitiesEndpointAvailable = true;
+let _geocodeProxyEndpointAvailable = true;
 
-    try {
-        const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=18&addressdetails=1`, {
-            headers: { 'User-Agent': 'LooFinder Web App' }
-        });
-        const data = await response.json();
-        
-        const addr = data.address;
-        if (addr.house_number && addr.road) {
-            return `${addr.house_number} ${addr.road}`;
-        } else if (addr.road) {
-            return addr.road;
-        } else if (addr.suburb) {
-            return addr.suburb;
-        }
-        return null;
-    } catch (e) {
-        console.error("Geocoding error:", e);
-        return null;
+// Bulk fetch resolved names. Returns Map<string, string> for hits only.
+// Falls back to per-id lookups if the bulk endpoint isn't deployed.
+async function getResolvedNamesBulk(facilityIds) {
+    if (backendUnavailable || !facilityIds.length) {
+        return new Map();
     }
+    const unique = Array.from(new Set(facilityIds.map(String)));
+    const result = new Map();
+
+    if (_bulkFacilitiesEndpointAvailable) {
+        const chunks = [];
+        for (let i = 0; i < unique.length; i += 100) {
+            chunks.push(unique.slice(i, i + 100));
+        }
+        for (const chunk of chunks) {
+            try {
+                const res = await fetch(`${BACKEND_URL}/api/facilities?ids=${encodeURIComponent(chunk.join(','))}`);
+                if (res.status === 404) {
+                    // Endpoint not deployed yet; remember and fall back.
+                    _bulkFacilitiesEndpointAvailable = false;
+                    break;
+                }
+                if (!res.ok) {
+                    if (res.status >= 500) markBackendUnavailable('facility bulk lookup');
+                    continue;
+                }
+                const data = await res.json();
+                const facilities = data.facilities || {};
+                for (const id of Object.keys(facilities)) {
+                    const f = facilities[id];
+                    if (f && f.resolved_name) result.set(String(id), f.resolved_name);
+                }
+            } catch {
+                markBackendUnavailable('facility bulk lookup');
+                return result;
+            }
+        }
+        if (_bulkFacilitiesEndpointAvailable) return result;
+    }
+
+    // Legacy fallback: one GET per id (slower, but works with older deployments).
+    for (const id of unique) {
+        if (backendUnavailable) break;
+        const name = await getResolvedNameFromBackend(id);
+        if (name) result.set(id, name);
+    }
+    return result;
 }
 
-// Save resolved name to backend for caching
-async function saveResolvedNameToBackend(facilityId, name, lat, lon) {
-    if (disableFacilityNameSaves || backendUnavailable) {
-        return;
-    }
+// Buffered bulk save of newly geocoded facilities.
+const _pendingFacilitySaves = [];
+let _pendingFacilitySaveTimer = null;
+function queueFacilitySave(payload) {
+    if (disableFacilityNameSaves || backendUnavailable) return;
+    _pendingFacilitySaves.push(payload);
+    if (_pendingFacilitySaveTimer) return;
+    _pendingFacilitySaveTimer = setTimeout(flushFacilitySaves, 1500);
+}
 
+async function flushFacilitySaves() {
+    _pendingFacilitySaveTimer = null;
+    if (!_pendingFacilitySaves.length) return;
+    const batch = _pendingFacilitySaves.splice(0, 200);
     try {
-        const response = await fetch(`${BACKEND_URL}/api/facilities`, {
+        const res = await fetch(`${BACKEND_URL}/api/facilities/bulk`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                id: facilityId.toString(),
-                name: name || "Public Toilet",
-                resolved_name: name,
-                latitude: lat,
-                longitude: lon,
-                accessible: false,
-                baby_change: false
-            })
+            body: JSON.stringify({ facilities: batch })
         });
-
-        if (!response.ok) {
-            if (response.status >= 500) {
-                markBackendUnavailable('facility save');
-            }
-            return;
+        if (!res.ok && res.status >= 500) {
+            markBackendUnavailable('facility bulk save');
         }
     } catch {
-        markBackendUnavailable('facility save');
+        markBackendUnavailable('facility bulk save');
+    }
+    // If more accumulated during the request, schedule another flush
+    if (_pendingFacilitySaves.length) {
+        _pendingFacilitySaveTimer = setTimeout(flushFacilitySaves, 1500);
     }
 }
 
-// Get display name for a facility (with caching)
+// Reverse-geocode via our backend proxy (preferred — it sends Nominatim a
+// proper User-Agent and caches results). If the proxy isn't deployed we
+// fall back to calling Nominatim directly so older API deployments still
+// resolve names.
+let _lastDirectNominatimCall = 0;
+
+async function _geocodeDirectFromNominatim(lat, lon) {
+    const now = Date.now();
+    const wait = Math.max(0, 1000 - (now - _lastDirectNominatimCall));
+    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+    _lastDirectNominatimCall = Date.now();
+    try {
+        const res = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=18&addressdetails=1`
+        );
+        if (!res.ok) return null;
+        const data = await res.json();
+        const addr = data.address || {};
+        if (addr.house_number && addr.road) return `${addr.house_number} ${addr.road}`;
+        if (addr.road) return addr.road;
+        if (addr.suburb) return addr.suburb;
+        if (addr.neighbourhood) return addr.neighbourhood;
+        return null;
+    } catch (e) {
+        console.error('Direct Nominatim error:', e);
+        return null;
+    }
+}
+
+async function geocodeAddress(lat, lon) {
+    if (_geocodeProxyEndpointAvailable && !backendUnavailable) {
+        try {
+            const res = await fetch(`${BACKEND_URL}/api/geocode/reverse?lat=${lat}&lon=${lon}`);
+            if (res.status === 404) {
+                // Proxy not deployed; flip flag and fall through.
+                _geocodeProxyEndpointAvailable = false;
+            } else if (res.ok) {
+                const data = await res.json();
+                return data.name || null;
+            } else {
+                if (res.status >= 500) markBackendUnavailable('geocode');
+                return null;
+            }
+        } catch {
+            markBackendUnavailable('geocode');
+            // fall through to direct Nominatim as a last resort
+        }
+    }
+    return _geocodeDirectFromNominatim(lat, lon);
+}
+
+// Queue a facility for bulk save to the backend's cache.
+function saveResolvedNameToBackend(facilityId, name, lat, lon) {
+    queueFacilitySave({
+        id: String(facilityId),
+        name: name || "Public Toilet",
+        resolved_name: name,
+        latitude: lat,
+        longitude: lon,
+        accessible: false,
+        baby_change: false,
+    });
+}
+
+// Get display name for a single facility (used as a fallback; the main path
+// goes through resolveNamesInBackground which does a bulk fetch first).
 async function getDisplayName(facilityId, lat, lon) {
-    // Check memory cache first
     if (nameCache[facilityId]) {
         return nameCache[facilityId];
     }
-    
-    // Check backend cache
+
     const cachedName = await getResolvedNameFromBackend(facilityId);
     if (cachedName) {
         nameCache[facilityId] = cachedName;
         return cachedName;
     }
-    
-    // Geocode and save to backend
+
     const geocodedName = await geocodeAddress(lat, lon);
     if (geocodedName) {
         nameCache[facilityId] = geocodedName;
-        // Save to backend for future use (don't await, let it happen in background)
         saveResolvedNameToBackend(facilityId, geocodedName, lat, lon);
         return geocodedName;
     }
-    
+
     return "Public Toilet";
 }
 
@@ -451,46 +585,85 @@ function elementsToFeatures(elements) {
         .filter(Boolean);
 }
 
+function applyResolvedName(feature, resolvedName) {
+    const props = feature.properties;
+    if (!resolvedName || props.Name === resolvedName) return;
+    props.Name = resolvedName;
+    nameCache[props.id] = resolvedName;
+    rememberFacility(props.id, resolvedName);
+
+    const listTitleEl = document.getElementById(`list-title-${props.id}`);
+    if (listTitleEl) listTitleEl.textContent = resolvedName;
+
+    if (feature.layerRef) {
+        const lat = feature.geometry.coordinates[1];
+        const lng = feature.geometry.coordinates[0];
+        feature.layerRef.setPopupContent(buildPopupHtml(props.id, resolvedName, lat, lng));
+    }
+}
+
 async function resolveNamesInBackground(loadToken, features) {
+    if (!features.length) return;
+
+    // Phase 1: single bulk lookup for all ids we don't already have in memory
+    const idsToLookup = features
+        .map((f) => f && f.properties && f.properties.id)
+        .filter((id) => id != null && !nameCache[id]);
+
+    let resolvedMap = new Map();
+    if (idsToLookup.length) {
+        resolvedMap = await getResolvedNamesBulk(idsToLookup);
+        if (loadToken !== currentLoadToken) return;
+    }
+
+    const needsGeocoding = [];
     for (const feature of features) {
         if (!feature || !feature.properties) continue;
-        if (loadToken !== currentLoadToken) return;
-
         const props = feature.properties;
-        const resolvedName = await getDisplayName(props.id, props.lat, props.lon);
-
-        if (loadToken !== currentLoadToken) return;
-
-        if (resolvedName && props.Name !== resolvedName) {
-            props.Name = resolvedName;
-            
-            // Direct DOM update instead of full render
-            const listTitleEl = document.getElementById(`list-title-${props.id}`);
-            if (listTitleEl) listTitleEl.innerText = escapeHTML(resolvedName);
-            
-            // Re-bind popup
-            if (feature.layerRef) {
-                const safeName = escapeHTML(resolvedName);
-                const safeId = "rt-" + props.id; 
-                const lat = feature.geometry.coordinates[1];
-                const lng = feature.geometry.coordinates[0];
-                const mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=walking`;
-
-                feature.layerRef.setPopupContent(`
-                    <div class="popup-title">${safeName}</div>
-                    <div id="${safeId}" class="popup-rating">${getRatingHtml(props.id, safeName, getCachedRatingSummary(props.id))}</div>
-                    <div style="display: flex; gap: 8px;">
-                        <a href="${mapsUrl}" target="_blank" class="btn-action-small btn-directions" style="flex:1;">
-                            <span class="material-symbols-outlined" style="font-size: 16px;">directions</span> Directions
-                        </a>
-                        <button class="btn-action-small btn-rate" style="flex:1;" onclick="openModal('${props.id}', '${safeName.replace(/'/g, "\\'")}')">
-                            <span class="material-symbols-outlined" style="font-size: 16px;">star</span> Rate
-                        </button>
-                    </div>
-                `);
-            }
+        const cached = nameCache[props.id] || resolvedMap.get(String(props.id));
+        if (cached) {
+            applyResolvedName(feature, cached);
+        } else {
+            needsGeocoding.push(feature);
         }
     }
+
+    // Phase 2: geocode misses serially (Nominatim 1 req/sec policy) and
+    // queue saves via the buffered bulk-save path.
+    for (const feature of needsGeocoding) {
+        if (loadToken !== currentLoadToken) return;
+        const props = feature.properties;
+        const geocodedName = await geocodeAddress(props.lat, props.lon);
+        if (loadToken !== currentLoadToken) return;
+        if (geocodedName) {
+            applyResolvedName(feature, geocodedName);
+            saveResolvedNameToBackend(props.id, geocodedName, props.lat, props.lon);
+        }
+    }
+}
+
+// Build popup HTML. Name is HTML-escaped and the action buttons rely on the
+// delegated click handler + data-action/data-facility-id attributes rather
+// than inline onclick handlers (which are XSS-fragile).
+function buildPopupHtml(facilityId, name, lat, lng) {
+    const safeName = escapeHTML(name);
+    const safeFacilityId = escapeHTML(String(facilityId));
+    const safeRatingElId = "rt-" + safeFacilityId;
+    const mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=walking`;
+    rememberFacility(facilityId, name);
+
+    return `
+        <div class="popup-title">${safeName}</div>
+        <div id="${safeRatingElId}" class="popup-rating">${getRatingHtml(facilityId, getCachedRatingSummary(facilityId))}</div>
+        <div style="display: flex; gap: 8px;">
+            <a href="${mapsUrl}" target="_blank" rel="noopener noreferrer" class="btn-action-small btn-directions" style="flex:1;">
+                <span class="material-symbols-outlined" style="font-size: 16px;">directions</span> Directions
+            </a>
+            <button class="btn-action-small btn-rate" style="flex:1;" data-action="rate" data-facility-id="${safeFacilityId}" type="button">
+                <span class="material-symbols-outlined" style="font-size: 16px;">star</span> Rate
+            </button>
+        </div>
+    `;
 }
 
 // --- Data Fetching (Comprehensive Detection) ---
@@ -571,6 +744,9 @@ async function renderMapPoints() {
 
     displayFeatures.sort((a,b) => a.properties.dist - b.properties.dist);
 
+    // Remember names for delegated click handlers
+    displayFeatures.forEach(f => rememberFacility(f.properties.id, f.properties.Name));
+
     // Render pins immediately, then backfill ratings once the fetch resolves
     fetchRatingSummaries(displayFeatures.map(f => f.properties.id)).then(() => {
         displayFeatures.forEach(feature => {
@@ -580,7 +756,7 @@ async function renderMapPoints() {
                 const listRatingEl = document.getElementById(`list-rating-${facilityId}`);
                 if (listRatingEl) listRatingEl.innerHTML = getListRatingHtml(facilityId, summary);
                 const popupRatingEl = document.getElementById(`rt-${facilityId}`);
-                if (popupRatingEl) popupRatingEl.innerHTML = getRatingHtml(facilityId, escapeHTML(feature.properties.Name), summary);
+                if (popupRatingEl) popupRatingEl.innerHTML = getRatingHtml(facilityId, summary);
             }
         });
     });
@@ -590,78 +766,88 @@ async function renderMapPoints() {
             return L.marker(latlng, {icon: toiletIcon});
         },
         onEachFeature: (f, l) => {
-            const name = f.properties.Name;
-            const safeName = escapeHTML(name);
             const facilityId = f.properties.id;
-            const safeId = "rt-" + facilityId; 
             const lat = f.geometry.coordinates[1];
             const lng = f.geometry.coordinates[0];
-            const mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=walking`;
 
-            l.bindPopup(`
-                <div class="popup-title">${safeName}</div>
-                <div id="${safeId}" class="popup-rating">${getRatingHtml(facilityId, safeName, getCachedRatingSummary(facilityId))}</div>
-                <div style="display: flex; gap: 8px;">
-                    <a href="${mapsUrl}" target="_blank" class="btn-action-small btn-directions" style="flex:1;">
-                        <span class="material-symbols-outlined" style="font-size: 16px;">directions</span> Directions
-                    </a>
-                    <button class="btn-action-small btn-rate" style="flex:1;" onclick="openModal('${facilityId}', '${safeName.replace(/'/g, "\\'")}')">
-                        <span class="material-symbols-outlined" style="font-size: 16px;">star</span> Rate
-                    </button>
-                </div>
-            `);
-            
+            l.bindPopup(buildPopupHtml(facilityId, f.properties.Name, lat, lng));
+
             l.on('popupopen', () => {
-                fetchAndDisplayRating(facilityId, safeName, safeId);
-                collapseSidebar(); // Snaps the sheet down so you can see the popup
+                fetchAndDisplayRating(facilityId, "rt-" + facilityId);
+                collapseSidebar();
             });
             f.layerRef = l;
         }
     }).addTo(map);
 
     const top5Nearest = displayFeatures.slice(0, 5);
-    
+
     top5Nearest.forEach(feature => {
-        const name = feature.properties.Name;
-        const safeName = escapeHTML(name);
         const facilityId = feature.properties.id;
+        const name = feature.properties.Name;
         const ratingSummary = getCachedRatingSummary(facilityId);
-        const listRatingHtml = getListRatingHtml(facilityId, ratingSummary);
-        const accIcon = feature.properties.Accessible ? '<span class="material-symbols-outlined" title="Accessible" style="font-size:16px;">accessible</span>' : '';
-        const babyIcon = feature.properties.BabyChange ? '<span class="material-symbols-outlined" title="Baby Change" style="font-size:16px;">baby_changing_station</span>' : '';
         const distanceKm = (feature.properties.dist / 1000).toFixed(2);
-        
         const lat = feature.geometry.coordinates[1];
         const lng = feature.geometry.coordinates[0];
         const mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=walking`;
 
         const listItem = document.createElement('div');
         listItem.className = 'list-item';
-        
-        listItem.innerHTML = `
-            <div class="list-item-header">
-                <div id="list-title-${facilityId}" class="list-item-title">${safeName}</div>
-                <div class="distance-badge">${distanceKm} km</div>
-            </div>
-            <div id="list-rating-${facilityId}" class="list-item-rating">${listRatingHtml}</div>
-            <div class="list-item-features">${accIcon} ${babyIcon}</div>
-            <div class="list-item-actions">
-                <a href="${mapsUrl}" target="_blank" class="btn-action-small btn-directions" onclick="event.stopPropagation();">
-                    <span class="material-symbols-outlined" style="font-size: 16px;">directions</span> Directions
-                </a>
-                <button class="btn-action-small btn-rate" onclick="event.stopPropagation(); openModal('${facilityId}', '${safeName.replace(/'/g, "\\'")}')">
-                    <span class="material-symbols-outlined" style="font-size: 16px;">star</span> Rate
-                </button>
-            </div>
-        `;
-        
-        listItem.onclick = () => {
+
+        // Build via DOM APIs so names are never interpolated into JS/HTML strings
+        const header = document.createElement('div');
+        header.className = 'list-item-header';
+        const title = document.createElement('div');
+        title.id = `list-title-${facilityId}`;
+        title.className = 'list-item-title';
+        title.textContent = name; // safe: textContent
+        const badge = document.createElement('div');
+        badge.className = 'distance-badge';
+        badge.textContent = `${distanceKm} km`;
+        header.append(title, badge);
+
+        const ratingWrap = document.createElement('div');
+        ratingWrap.id = `list-rating-${facilityId}`;
+        ratingWrap.className = 'list-item-rating';
+        ratingWrap.innerHTML = getListRatingHtml(facilityId, ratingSummary);
+
+        const features = document.createElement('div');
+        features.className = 'list-item-features';
+        if (feature.properties.Accessible) {
+            features.insertAdjacentHTML('beforeend',
+                '<span class="material-symbols-outlined" title="Accessible" style="font-size:16px;">accessible</span>');
+        }
+        if (feature.properties.BabyChange) {
+            features.insertAdjacentHTML('beforeend',
+                ' <span class="material-symbols-outlined" title="Baby Change" style="font-size:16px;">baby_changing_station</span>');
+        }
+
+        const actions = document.createElement('div');
+        actions.className = 'list-item-actions';
+        const dirLink = document.createElement('a');
+        dirLink.href = mapsUrl;
+        dirLink.target = '_blank';
+        dirLink.rel = 'noopener noreferrer';
+        dirLink.className = 'btn-action-small btn-directions';
+        dirLink.innerHTML = '<span class="material-symbols-outlined" style="font-size: 16px;">directions</span> Directions';
+        dirLink.addEventListener('click', (e) => e.stopPropagation());
+        const rateBtn = document.createElement('button');
+        rateBtn.type = 'button';
+        rateBtn.className = 'btn-action-small btn-rate';
+        rateBtn.dataset.action = 'rate';
+        rateBtn.dataset.facilityId = String(facilityId);
+        rateBtn.innerHTML = '<span class="material-symbols-outlined" style="font-size: 16px;">star</span> Rate';
+        // Delegated handler fires openModal; we also stop propagation so the
+        // list item's own click (which opens the popup) doesn't also fire.
+        rateBtn.addEventListener('click', (e) => e.stopPropagation());
+        actions.append(dirLink, rateBtn);
+
+        listItem.append(header, ratingWrap, features, actions);
+        listItem.addEventListener('click', () => {
             map.flyTo([lat, lng], 16, { animate: true, duration: 1 });
-            if (feature.layerRef) {
-                feature.layerRef.openPopup();
-            }
-        };
-        
+            if (feature.layerRef) feature.layerRef.openPopup();
+        });
+
         listContainer.appendChild(listItem);
     });
 }
@@ -679,17 +865,20 @@ function getCachedRatingSummary(facilityId) {
     return summary;
 }
 
-function getRatingHtml(facilityId, safeName, summary) {
+function getRatingHtml(facilityId, summary) {
+    const safeFacilityId = escapeHTML(String(facilityId));
+
     if (!summary || !summary.review_count) {
-        return `<div class="empty-state-rating" onclick="openModal('${facilityId}', '${safeName.replace(/'/g, "\\'")}')">
+        return `<div class="empty-state-rating" data-action="rate" data-facility-id="${safeFacilityId}" role="button" tabindex="0">
                     <span class="material-symbols-outlined">add_comment</span>
                     <span>Be the first to review!</span>
                 </div>`;
     }
 
     const avg = Number(summary.avg_rating || 0).toFixed(1);
-    return `<span class="clickable-rating" onclick="openReviewsList('${facilityId}', '${safeName.replace(/'/g, "\\'")}')">
-                <span class="material-symbols-outlined" style="font-size:16px; color:#f59e0b;">star</span> ${avg} (${summary.review_count})
+    const count = Number(summary.review_count) | 0;
+    return `<span class="clickable-rating" data-action="open-reviews" data-facility-id="${safeFacilityId}" role="button" tabindex="0">
+                <span class="material-symbols-outlined" style="font-size:16px; color:#f59e0b;">star</span> ${avg} (${count})
             </span>`;
 }
 
@@ -775,13 +964,13 @@ async function waitForRatingSummaryInFlight(facilityId, timeoutMs = 3000) {
     return getCachedRatingSummary(facilityId);
 }
 
-async function fetchAndDisplayRating(facilityId, name, htmlId) {
+async function fetchAndDisplayRating(facilityId, htmlId) {
     const el = document.getElementById(htmlId);
     if (!el) return;
 
     const cachedSummary = getCachedRatingSummary(facilityId);
     if (cachedSummary) {
-        el.innerHTML = getRatingHtml(facilityId, name, cachedSummary);
+        el.innerHTML = getRatingHtml(facilityId, cachedSummary);
         return;
     }
 
@@ -794,7 +983,7 @@ async function fetchAndDisplayRating(facilityId, name, htmlId) {
     }
 
     if (summary) {
-        el.innerHTML = getRatingHtml(facilityId, name, summary);
+        el.innerHTML = getRatingHtml(facilityId, summary);
         return;
     }
 
@@ -803,7 +992,7 @@ async function fetchAndDisplayRating(facilityId, name, htmlId) {
         return;
     }
 
-    el.innerHTML = getRatingHtml(facilityId, name, getCachedRatingSummary(facilityId));
+    el.innerHTML = getRatingHtml(facilityId, getCachedRatingSummary(facilityId));
 }
 
 // --- GPS Logic ---
@@ -1011,7 +1200,7 @@ async function submitReview() {
 
 async function openReviewsList(facilityId, name) {
     document.getElementById('reviewsListModal').style.display = 'flex';
-    document.getElementById('listModalFacilityName').innerText = name + " Reviews";
+    document.getElementById('listModalFacilityName').textContent = (name || 'Facility') + " Reviews";
     const container = document.getElementById('reviewsContainer');
     container.innerHTML = "Loading...";
     
