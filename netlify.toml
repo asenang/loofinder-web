@@ -1,0 +1,28 @@
+[build]
+  publish = "."
+
+# Service worker must be served from the site root with a no-cache policy so
+# users always pick up the latest version on next load.
+[[headers]]
+  for = "/service-worker.js"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
+    Service-Worker-Allowed = "/"
+
+[[headers]]
+  for = "/assets/site.webmanifest"
+  [headers.values]
+    Content-Type = "application/manifest+json"
+    Cache-Control = "public, max-age=3600"
+
+# Long-cache static assets (we use ?v= query strings for cache-busting).
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+# SPA-style fallback so deep links land on index.html.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
