@@ -21,9 +21,19 @@ This document outlines potential future enhancements, features, and architectura
 *   **The Idea:** If a user zooms out to view an entire city, thousands of pins will overlap and cause the browser to lag.
 *   **Implementation:** Implement the `Leaflet.markercluster` plugin to group nearby toilets into single interactive bubbles with numbers (e.g., "14") that expand when you zoom in.
 
-### 5. Photo Uploads for Reviews
+### 5. Photo Uploads for Reviews  *(parked — moderation cost)*
 *   **The Idea:** Allowing users to upload photos proves cleanliness and condition, which is a high priority for users.
 *   **Implementation:** Add an image upload button to the review modal. Send the payload to the API (which will need an update to handle `multipart/form-data` and cloud storage like S3).
+*   **Status:** Parked until LooFinder has either (a) enough sponsorship/Plus revenue to fund moderation tooling, or (b) a trusted-contributor community we can gate uploads behind.
+*   **Blocker:** Public photo uploads on a toilet-related app are an obvious abuse magnet. Shipping responsibly requires:
+    1. Cloud storage (Cloudflare R2 / S3) with `pending` flag.
+    2. Synchronous automated pre-screening (Sightengine / Google Cloud Vision SafeSearch / AWS Rekognition Moderation) — auto-reject `adult|gore|violence`.
+    3. Manual admin approval queue gated by `SETUP_ADMIN_TOKEN` for anything not auto-rejected.
+    4. Report button + auto-hide after N reports.
+    5. Perceptual image hashing so previously-rejected images are auto-rejected on re-upload.
+    6. Rate limiting: 1 photo per facility per user per day, max 3 photos per facility.
+    7. Optional: trusted-user gating (N+ approved reviews required to upload).
+*   **Estimated effort:** ~2 days for the moderated stack; do not ship without it.
 
 ## 💰 Monetization Strategy
 
