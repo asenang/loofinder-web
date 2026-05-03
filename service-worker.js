@@ -8,28 +8,25 @@
  *     fall back to cache so the last-seen data still renders offline.
  *   - Everything else: network-first.
  */
-const SW_VERSION = "v1.0.1";
+const SW_VERSION = "v1.0.2";
 const APP_CACHE = `loofinder-app-${SW_VERSION}`;
 const TILE_CACHE = `loofinder-tiles-${SW_VERSION}`;
 const API_CACHE = `loofinder-api-${SW_VERSION}`;
 const TILE_CACHE_MAX_ENTRIES = 400;
 
+// Minimal precache: just enough to render an offline shell. Versioned CSS/JS
+// (`?v=`) and CDN scripts will be picked up by the runtime stale-while-
+// revalidate handler on first page load, so we don't have to bump this list
+// on every release.
 const APP_SHELL = [
   "/",
   "/index.html",
-  "/style.css?v=11.1",
-  "/app.js?v=11.1",
   "/assets/site.webmanifest",
   "/assets/logos/loofinder-logo-icon.svg",
   "/assets/android-chrome-192x192.png",
   "/assets/android-chrome-512x512.png",
   "/assets/favicon.ico",
   "/assets/apple-touch-icon.png",
-  "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css",
-  "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js",
-  "https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css",
-  "https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css",
-  "https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js",
 ];
 
 self.addEventListener("install", (event) => {
@@ -68,11 +65,14 @@ function isTileRequest(url) {
 }
 
 function isApiRequest(url) {
+  // Match the LooFinder backend (Render today, but accept any host that
+  // starts with "loofinder-api"), the Overpass mirrors, and any path that
+  // looks like a JSON API. We never cache POST/PATCH/DELETE — the fetch
+  // handler short-circuits on those before reaching here.
   return (
-    /loofinder.*\.vercel\.app|loofinder.*\.onrender\.com|loofinder.*\.fly\.dev/i.test(
-      url.hostname
-    ) ||
-    /overpass[-.]/.test(url.hostname) ||
+    /^loofinder-api\b/i.test(url.hostname) ||
+    /\boverpass[-.]/i.test(url.hostname) ||
+    /nominatim\.openstreetmap\.org$/i.test(url.hostname) ||
     url.pathname.startsWith("/api/")
   );
 }

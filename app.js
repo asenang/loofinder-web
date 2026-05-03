@@ -1349,6 +1349,15 @@ map.whenReady(() => initializeWithUserLocation());
 // --- PWA: service worker registration + install prompt + offline indicator ---
 let _deferredInstallPrompt = null;
 
+// True when the page is launched as a standalone installed PWA (Android/iOS).
+// In that case we never want to nag the user to "install" the app they're
+// already inside.
+function isStandalonePWA() {
+    return (
+        window.matchMedia && window.matchMedia("(display-mode: standalone)").matches
+    ) || window.navigator.standalone === true;
+}
+
 if ("serviceWorker" in navigator) {
     window.addEventListener("load", () => {
         navigator.serviceWorker
@@ -1376,6 +1385,7 @@ function _setInstallActionVisible(visible) {
 
 window.addEventListener("beforeinstallprompt", (e) => {
     e.preventDefault();
+    if (isStandalonePWA()) return; // already installed; don't surface the prompt
     _deferredInstallPrompt = e;
     _setInstallActionVisible(true);
 });
