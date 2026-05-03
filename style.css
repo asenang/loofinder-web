@@ -148,11 +148,17 @@ p { color: #7f8c8d; font-size: 14px; margin-bottom: 16px; }
 }
 
 /* Filter Chips */
-.filters { display: flex; gap: 8px; margin-bottom: 20px; }
-.filter-chip { padding: 8px 14px; background: #e2e8f0; color: #4a5568; border-radius: 20px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1); border: 1px solid transparent; }
+.filters { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 20px; }
+.filter-chip { display: inline-flex; align-items: center; gap: 4px; padding: 6px 10px; background: #e2e8f0; color: #4a5568; border-radius: 20px; font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1); border: 1px solid transparent; white-space: nowrap; line-height: 1; }
+.filter-chip .material-symbols-outlined { font-size: 14px !important; vertical-align: middle; }
 .filter-chip:active { transform: scale(0.95); }
 .filter-chip:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
 .filter-chip.active { background: #007aff; color: white; }
+.filters-extra { margin-top: -12px; margin-bottom: 16px; }
+.filter-chip-more { background: transparent; border: 1px dashed #cbd5e1; color: #64748b; }
+.filter-chip-more.active { background: transparent; border-color: #007aff; color: #007aff; }
+.theme-dark .filter-chip-more { border-color: #475569; color: #94a3b8; }
+.theme-dark .filter-chip-more.active { border-color: #3b82f6; color: #3b82f6; }
 
 /* --- Refined List Item Styles --- */
 .list-header { padding: 16px 24px 8px; font-weight: 700; color: #7f8c8d; font-size: 12px; text-transform: uppercase; }
@@ -235,6 +241,23 @@ button.btn-rate, .btn-rate { background: #f1f5f9; color: #4a5568 !important; bor
 }
 .theme-toggle .material-symbols-outlined { font-size: 18px; }
 .theme-toggle:hover { transform: translateY(-1px); }
+
+/* PWA / safe-area: when launched as a standalone app on iOS/Android,
+ * push the floating chrome away from the notch and home indicator so it
+ * doesn't sit underneath the status bar. */
+@supports (padding: env(safe-area-inset-top)) {
+    .theme-toggle {
+        top: calc(20px + env(safe-area-inset-top));
+        right: calc(20px + env(safe-area-inset-right));
+    }
+    .support-button-floating {
+        bottom: calc(24px + env(safe-area-inset-bottom));
+        right: calc(24px + env(safe-area-inset-right));
+    }
+    .support-menu-mobile {
+        top: calc(env(safe-area-inset-top) + 0px);
+    }
+}
 #loader { display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 2500; background: white; padding: 15px 25px; border-radius: 30px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); align-items: center; gap: 10px; font-weight: 600; color: #2c3e50; }
 .spinner { width: 20px; height: 20px; border: 3px solid #e2e8f0; border-top: 3px solid #007aff; border-radius: 50%; animation: spin 1s linear infinite; }
 @keyframes spin { 100% { transform: rotate(360deg); } }

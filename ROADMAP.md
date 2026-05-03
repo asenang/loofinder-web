@@ -4,19 +4,20 @@ This document outlines potential future enhancements, features, and architectura
 
 ## 🌟 High-Impact User Features
 
-### 1. Progressive Web App (PWA) & Offline Support
+### 1. Progressive Web App (PWA) & Offline Support  *(shipped)*
 *   **The Idea:** Users often need restroom access when they have poor cell service (e.g., in a basement mall, a subway, or a remote park).
 *   **Implementation:** Add a `service-worker.js` and a `manifest.json` (already partially there) to cache the app's HTML/CSS/JS and recently viewed map tiles. This allows the app to be "installed" to a user's phone home screen natively and load without an internet connection.
 
-### 2. Live Walking Routes & Estimates
+### 2. Live Walking Routes & Estimates  *(parked)*
 *   **The Idea:** Instead of kicking users out to the Google Maps app via the "Directions" button, draw the walking path directly on your Leaflet map.
 *   **Implementation:** Integrate the `Leaflet Routing Machine` plugin or query the OpenRouteService API to draw the polyline and display "3 min walk".
+*   **Status:** Parked. Google/Apple Maps already provide best-in-class turn-by-turn walking nav, live re-routing, traffic, and AR. Replicating that inside LooFinder doesn't justify the maintenance cost. Keep the existing deep-link "Directions" button. Revisit if/when we add an indoor/floor-plan view or want to overlay LooFinder-only metadata (e.g. accessibility along the route).
 
-### 3. Rich OpenStreetMap Tags
+### 3. Rich OpenStreetMap Tags  *(shipped)*
 *   **The Idea:** OpenStreetMap has a wealth of hidden metadata regarding facilities. 
 *   **Implementation:** Update the Overpass query to look for tags like `fee=yes/no` (is it free?), `wheelchair=yes/no` (is it fully accessible?), and `unisex=yes`. Add corresponding visual filter chips so users can find exactly what they need.
 
-### 4. Pin Clustering
+### 4. Pin Clustering  *(shipped)*
 *   **The Idea:** If a user zooms out to view an entire city, thousands of pins will overlap and cause the browser to lag.
 *   **Implementation:** Implement the `Leaflet.markercluster` plugin to group nearby toilets into single interactive bubbles with numbers (e.g., "14") that expand when you zoom in.
 

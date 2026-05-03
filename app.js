@@ -220,7 +220,7 @@ let ratingCache = {};
 let ratingSummaryCache = {};
 let userLocationMarker = null;
 let currentMapLayer = null;
-let activeFilters = { accessible: false, baby: false };
+let activeFilters = { accessible: false, baby: false, free: false, unisex: false };
 let disableFacilityNameSaves = false;
 let backendUnavailable = false;
 let currentLoadToken = 0;
@@ -568,6 +568,20 @@ function elementsToFeatures(elements) {
             }
 
             const featureId = el.type === "node" ? el.id : `${el.type}-${el.id}`;
+            const tags = el.tags || {};
+
+            const tagBool = (v) => {
+                if (!v) return false;
+                const s = String(v).toLowerCase();
+                return s === "yes" || s === "designated";
+            };
+            const accessible = tagBool(tags.wheelchair);
+            const babyChange = tagBool(tags.changing_table) || tagBool(tags.baby_changing);
+            const fee = (tags.fee || "").toLowerCase();
+            const free = fee === "no" || fee === "free";
+            const unisex = tagBool(tags.unisex);
+            const openingHours = tags.opening_hours || null;
+            const access = (tags.access || "").toLowerCase();
 
             return {
                 type: "Feature",
@@ -576,8 +590,12 @@ function elementsToFeatures(elements) {
                     Name: "Public Toilet",
                     lat,
                     lon,
-                    Accessible: false,
-                    BabyChange: false
+                    Accessible: accessible,
+                    BabyChange: babyChange,
+                    Free: free,
+                    Unisex: unisex,
+                    OpeningHours: openingHours,
+                    Access: access,
                 },
                 geometry: { type: "Point", coordinates: [lon, lat] }
             };
@@ -731,8 +749,11 @@ async function renderMapPoints() {
     const referencePoint = userLocationMarker ? userLocationMarker.getLatLng() : map.getCenter();
 
     let displayFeatures = allToiletData.features.filter(f => {
-        if (activeFilters.accessible && !f.properties.Accessible) return false;
-        if (activeFilters.baby && !f.properties.BabyChange) return false;
+        const p = f.properties;
+        if (activeFilters.accessible && !p.Accessible) return false;
+        if (activeFilters.baby && !p.BabyChange) return false;
+        if (activeFilters.free && !p.Free) return false;
+        if (activeFilters.unisex && !p.Unisex) return false;
         return true;
     });
 
@@ -761,24 +782,30 @@ async function renderMapPoints() {
         });
     });
 
-    currentMapLayer = L.geoJSON({type: "FeatureCollection", features: displayFeatures}, {
-        pointToLayer: function (feature, latlng) {
-            return L.marker(latlng, {icon: toiletIcon});
-        },
-        onEachFeature: (f, l) => {
-            const facilityId = f.properties.id;
-            const lat = f.geometry.coordinates[1];
-            const lng = f.geometry.coordinates[0];
+    // Use markercluster to avoid browser lag at city zoom (falls back to a
+    // plain layer group if the plugin isn't loaded).
+    currentMapLayer = (typeof L.markerClusterGroup === "function")
+        ? L.markerClusterGroup({
+            maxClusterRadius: 50,
+            showCoverageOnHover: false,
+            spiderfyOnMaxZoom: true,
+        })
+        : L.layerGroup();
 
-            l.bindPopup(buildPopupHtml(facilityId, f.properties.Name, lat, lng));
-
-            l.on('popupopen', () => {
-                fetchAndDisplayRating(facilityId, "rt-" + facilityId);
-                collapseSidebar();
-            });
-            f.layerRef = l;
-        }
-    }).addTo(map);
+    displayFeatures.forEach(f => {
+        const facilityId = f.properties.id;
+        const lat = f.geometry.coordinates[1];
+        const lng = f.geometry.coordinates[0];
+        const marker = L.marker([lat, lng], {icon: toiletIcon});
+        marker.bindPopup(buildPopupHtml(facilityId, f.properties.Name, lat, lng));
+        marker.on('popupopen', () => {
+            fetchAndDisplayRating(facilityId, "rt-" + facilityId);
+            collapseSidebar();
+        });
+        f.layerRef = marker;
+        currentMapLayer.addLayer(marker);
+    });
+    map.addLayer(currentMapLayer);
 
     const top5Nearest = displayFeatures.slice(0, 5);
 
@@ -1093,6 +1120,15 @@ function triggerSearchArea() { loadDataForCurrentBounds(); }
 // ... (rest of the code remains the same)
 // --- Modals & Filters ---
 function toggleFilter(t) { activeFilters[t] = !activeFilters[t]; document.getElementById('chip-'+t).classList.toggle('active'); renderMapPoints(); }
+function toggleMoreFilters() {
+    const extra = document.getElementById('filters-extra');
+    const label = document.getElementById('chip-more-label');
+    const chip = document.getElementById('chip-more');
+    const isHidden = extra.style.display === 'none' || extra.style.display === '';
+    extra.style.display = isHidden ? 'flex' : 'none';
+    label.textContent = isHidden ? 'Hide filters' : 'All filters';
+    chip.classList.toggle('active', isHidden);
+}
 
 function openModal(id, name) { 
     currentReviewFacilityId = id; 
@@ -1198,14 +1234,80 @@ async function submitReview() {
     } catch (e) { showToast("Error connecting.", "error"); }
 }
 
+const REVIEWS_PAGE_SIZE = 50;
+let _currentReviewsFacilityId = null;
+let _currentReviewsOffset = 0;
+
+function appendReviewCards(container, reviews) {
+    reviews.forEach((review) => {
+        const card = document.createElement('div');
+        card.className = 'review-card';
+
+        const ratingEl = document.createElement('b');
+        ratingEl.style.color = '#f59e0b';
+        const safeRating = Number.isFinite(Number(review.rating)) ? Number(review.rating) : 0;
+        ratingEl.textContent = `★ ${safeRating}`;
+
+        const br = document.createElement('br');
+        const textNode = document.createTextNode(review.review_text || '');
+
+        card.appendChild(ratingEl);
+        card.appendChild(br);
+        card.appendChild(textNode);
+        container.appendChild(card);
+    });
+}
+
+function removeLoadMoreButton() {
+    const btn = document.getElementById('load-more-reviews-btn');
+    if (btn) btn.remove();
+}
+
+async function loadMoreReviews() {
+    const container = document.getElementById('reviewsContainer');
+    const btn = document.getElementById('load-more-reviews-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Loading...'; }
+    try {
+        const res = await fetch(`${BACKEND_URL}/api/reviews/${_currentReviewsFacilityId}?limit=${REVIEWS_PAGE_SIZE}&offset=${_currentReviewsOffset}`);
+        if (!res.ok) {
+            removeLoadMoreButton();
+            return;
+        }
+        const data = await res.json();
+        const reviews = Array.isArray(data.reviews) ? data.reviews : [];
+        const total = Number.isFinite(Number(data.total)) ? Number(data.total) : reviews.length;
+
+        _currentReviewsOffset += reviews.length;
+        appendReviewCards(container, reviews);
+
+        removeLoadMoreButton();
+        const remaining = total - _currentReviewsOffset;
+        if (remaining > 0 && reviews.length > 0) {
+            const moreBtn = document.createElement('button');
+            moreBtn.id = 'load-more-reviews-btn';
+            moreBtn.className = 'btn-cancel';
+            moreBtn.style.width = '100%';
+            moreBtn.style.marginTop = '12px';
+            moreBtn.textContent = `Show more (${remaining} left)`;
+            moreBtn.onclick = loadMoreReviews;
+            container.appendChild(moreBtn);
+        }
+    } catch (error) {
+        console.error('Error loading more reviews:', error);
+        removeLoadMoreButton();
+    }
+}
+
 async function openReviewsList(facilityId, name) {
     document.getElementById('reviewsListModal').style.display = 'flex';
     document.getElementById('listModalFacilityName').textContent = (name || 'Facility') + " Reviews";
     const container = document.getElementById('reviewsContainer');
     container.innerHTML = "Loading...";
-    
+    _currentReviewsFacilityId = facilityId;
+    _currentReviewsOffset = 0;
+
     try {
-        const res = await fetch(`${BACKEND_URL}/api/reviews/${facilityId}`);
+        const res = await fetch(`${BACKEND_URL}/api/reviews/${facilityId}?limit=${REVIEWS_PAGE_SIZE}&offset=0`);
         if (!res.ok) {
             container.textContent = "Reviews unavailable right now.";
             return;
@@ -1213,6 +1315,7 @@ async function openReviewsList(facilityId, name) {
 
         const data = await res.json();
         const reviews = Array.isArray(data.reviews) ? data.reviews : [];
+        const total = Number.isFinite(Number(data.total)) ? Number(data.total) : reviews.length;
 
         container.innerHTML = "";
         if (reviews.length === 0) {
@@ -1220,23 +1323,20 @@ async function openReviewsList(facilityId, name) {
             return;
         }
 
-        reviews.forEach((review) => {
-            const card = document.createElement('div');
-            card.className = 'review-card';
+        _currentReviewsOffset = reviews.length;
+        appendReviewCards(container, reviews);
 
-            const ratingEl = document.createElement('b');
-            ratingEl.style.color = '#f59e0b';
-            const safeRating = Number.isFinite(Number(review.rating)) ? Number(review.rating) : 0;
-            ratingEl.textContent = `★ ${safeRating}`;
-
-            const br = document.createElement('br');
-            const textNode = document.createTextNode(review.review_text || '');
-
-            card.appendChild(ratingEl);
-            card.appendChild(br);
-            card.appendChild(textNode);
-            container.appendChild(card);
-        });
+        const remaining = total - _currentReviewsOffset;
+        if (remaining > 0) {
+            const moreBtn = document.createElement('button');
+            moreBtn.id = 'load-more-reviews-btn';
+            moreBtn.className = 'btn-cancel';
+            moreBtn.style.width = '100%';
+            moreBtn.style.marginTop = '12px';
+            moreBtn.textContent = `Show more (${remaining} left)`;
+            moreBtn.onclick = loadMoreReviews;
+            container.appendChild(moreBtn);
+        }
     } catch (error) {
         console.error('Error loading reviews:', error);
         container.textContent = "Reviews unavailable right now.";
@@ -1245,6 +1345,61 @@ async function openReviewsList(facilityId, name) {
 function closeReviewsList() { document.getElementById('reviewsListModal').style.display = 'none'; }
 
 map.whenReady(() => initializeWithUserLocation());
+
+// --- PWA: service worker registration + install prompt + offline indicator ---
+let _deferredInstallPrompt = null;
+
+if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => {
+        navigator.serviceWorker
+            .register("/service-worker.js")
+            .then((reg) => {
+                // When a new SW takes over, refresh once so the user gets the new assets.
+                let refreshing = false;
+                navigator.serviceWorker.addEventListener("controllerchange", () => {
+                    if (refreshing) return;
+                    refreshing = true;
+                    window.location.reload();
+                });
+                // Nudge a waiting SW to activate immediately on next load.
+                if (reg.waiting) reg.waiting.postMessage("SKIP_WAITING");
+            })
+            .catch((err) => console.warn("SW registration failed:", err));
+    });
+}
+
+function _setInstallActionVisible(visible) {
+    document.querySelectorAll(".install-action").forEach((el) => {
+        el.style.display = visible ? "" : "none";
+    });
+}
+
+window.addEventListener("beforeinstallprompt", (e) => {
+    e.preventDefault();
+    _deferredInstallPrompt = e;
+    _setInstallActionVisible(true);
+});
+
+window.addEventListener("appinstalled", () => {
+    _deferredInstallPrompt = null;
+    _setInstallActionVisible(false);
+    showToast("LooFinder installed!", "success");
+});
+
+async function triggerInstallPrompt() {
+    if (!_deferredInstallPrompt) return;
+    _deferredInstallPrompt.prompt();
+    try {
+        await _deferredInstallPrompt.userChoice;
+    } catch {}
+    _deferredInstallPrompt = null;
+    _setInstallActionVisible(false);
+}
+
+window.addEventListener("online", () => showToast("Back online", "success"));
+window.addEventListener("offline", () =>
+    showToast("You're offline — showing cached data", "error")
+);
 
 // --- Mobile Drag-to-Expand Logic ---
 const sidebarElement = document.querySelector('.sidebar');
