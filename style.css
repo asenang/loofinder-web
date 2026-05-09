@@ -208,6 +208,25 @@ button.btn-rate, .btn-rate { background: #f1f5f9; color: #4a5568 !important; bor
 .custom-user-marker { background: transparent; border: none; }
 .user-location-dot { width: 14px; height: 14px; background-color: #007aff; border: 2px solid white; border-radius: 50%; box-shadow: 0 0 5px rgba(0,0,0,0.4); }
 
+/* --- Marker Cluster (brand blue, replaces default green/yellow/orange) --- */
+.marker-cluster-small,
+.marker-cluster-medium,
+.marker-cluster-large {
+    background-color: rgba(0, 122, 255, 0.25);
+}
+.marker-cluster-small div,
+.marker-cluster-medium div,
+.marker-cluster-large div {
+    background-color: #007aff;
+    color: #fff;
+    font-weight: 700;
+    border: 2px solid rgba(255, 255, 255, 0.9);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+}
+/* Slightly deeper shade for larger clusters to retain visual hierarchy */
+.marker-cluster-medium div { background-color: #0066d6; }
+.marker-cluster-large div { background-color: #0052ad; }
+
 /* --- Toast Notifications --- */
 .toast-container { position: absolute; top: 20px; left: 50%; transform: translateX(-50%); z-index: 4000; width: 90%; max-width: 350px; pointer-events: none; }
 .toast { background: white; color: #2c3e50; padding: 14px 20px; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.15); font-weight: 600; margin-bottom: 10px; transition: opacity 0.4s; display: flex; align-items: center; gap: 8px; }
