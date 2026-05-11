@@ -210,6 +210,44 @@ syncSupportMenuForViewport();
 // Environment Configuration
 const IS_LOCAL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname === '';
 const BACKEND_URL = IS_LOCAL ? "http://localhost:8000" : "https://loofinder-api.onrender.com";
+const APP_VERSION = "11.4";
+
+function getAnalyticsSessionId() {
+    const key = 'loofinder-analytics-session-id';
+    let id = sessionStorage.getItem(key);
+    if (!id) {
+        id = (window.crypto && window.crypto.randomUUID) ? window.crypto.randomUUID() : `s-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        sessionStorage.setItem(key, id);
+    }
+    return id;
+}
+
+function trackEvent(eventName, properties = {}) {
+    if (!eventName) return;
+
+    const payload = JSON.stringify({
+        event_name: eventName,
+        session_id: getAnalyticsSessionId(),
+        app_version: APP_VERSION,
+        path: window.location.pathname,
+        referrer: document.referrer || null,
+        properties
+    });
+
+    const url = `${BACKEND_URL}/api/analytics/events`;
+    try {
+        if (navigator.sendBeacon) {
+            navigator.sendBeacon(url, new Blob([payload], { type: 'application/json' }));
+            return;
+        }
+        fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: payload,
+            keepalive: true
+        }).catch(() => {});
+    } catch {}
+}
 
 const OVERPASS_ENDPOINTS = [
     "https://overpass-api.de/api/interpreter",
@@ -232,6 +270,7 @@ const ratingSummaryInFlight = new Set();
 function markBackendUnavailable(reason) {
     if (!backendUnavailable) {
         console.warn(`Backend unavailable (${reason}). Running in limited mode.`);
+        trackEvent('backend_unavailable_marked', { reason });
     }
     backendUnavailable = true;
     disableFacilityNameSaves = true;
@@ -289,6 +328,8 @@ document.addEventListener('click', (event) => {
         event.preventDefault();
         event.stopPropagation();
         openReviewsList(facilityId, name);
+    } else if (action === 'directions') {
+        trackEvent('directions_clicked', { source: 'popup', facility_id: String(facilityId) });
     }
 });
 
@@ -674,7 +715,7 @@ function buildPopupHtml(facilityId, name, lat, lng) {
         <div class="popup-title">${safeName}</div>
         <div id="${safeRatingElId}" class="popup-rating">${getRatingHtml(facilityId, getCachedRatingSummary(facilityId))}</div>
         <div style="display: flex; gap: 8px;">
-            <a href="${mapsUrl}" target="_blank" rel="noopener noreferrer" class="btn-action-small btn-directions" style="flex:1;">
+            <a href="${mapsUrl}" target="_blank" rel="noopener noreferrer" class="btn-action-small btn-directions" style="flex:1;" data-action="directions" data-facility-id="${safeFacilityId}">
                 <span class="material-symbols-outlined" style="font-size: 16px;">directions</span> Directions
             </a>
             <button class="btn-action-small btn-rate" style="flex:1;" data-action="rate" data-facility-id="${safeFacilityId}" type="button">
@@ -734,6 +775,7 @@ async function loadDataForCurrentBounds() {
 
     } catch (e) { 
         console.error("Overpass API Error:", e); 
+        trackEvent('overpass_fetch_failed', { message: e && e.message ? e.message : 'unknown' });
         showToast("Error finding toilets in this area. Try zooming in or moving to a different area.", "error");
     } finally { 
         document.getElementById('loader').style.display = 'none'; 
@@ -857,16 +899,21 @@ async function renderMapPoints() {
         dirLink.rel = 'noopener noreferrer';
         dirLink.className = 'btn-action-small btn-directions';
         dirLink.innerHTML = '<span class="material-symbols-outlined" style="font-size: 16px;">directions</span> Directions';
-        dirLink.addEventListener('click', (e) => e.stopPropagation());
+        dirLink.addEventListener('click', (e) => {
+            e.stopPropagation();
+            trackEvent('directions_clicked', { source: 'list', facility_id: String(facilityId) });
+        });
         const rateBtn = document.createElement('button');
         rateBtn.type = 'button';
         rateBtn.className = 'btn-action-small btn-rate';
         rateBtn.dataset.action = 'rate';
         rateBtn.dataset.facilityId = String(facilityId);
         rateBtn.innerHTML = '<span class="material-symbols-outlined" style="font-size: 16px;">star</span> Rate';
-        // Delegated handler fires openModal; we also stop propagation so the
-        // list item's own click (which opens the popup) doesn't also fire.
-        rateBtn.addEventListener('click', (e) => e.stopPropagation());
+        rateBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            openModal(facilityId, name);
+        });
         actions.append(dirLink, rateBtn);
 
         listItem.append(header, ratingWrap, features, actions);
@@ -1024,6 +1071,7 @@ async function fetchAndDisplayRating(facilityId, htmlId) {
 
 // --- GPS Logic ---
 function findNearest() {
+    trackEvent('use_my_location_clicked');
     if (!navigator.geolocation) return;
     navigator.geolocation.getCurrentPosition(pos => {
         const lat = pos.coords.latitude, lng = pos.coords.longitude;
@@ -1037,8 +1085,10 @@ function findNearest() {
     }, (error) => {
         // If user denies location, show a toast and load data for current view
         if (error.code === error.PERMISSION_DENIED) {
+            trackEvent('geolocation_failed', { reason: 'permission_denied' });
             showToast("Location denied. Showing toilets for default area.", "error");
         } else {
+            trackEvent('geolocation_failed', { reason: 'unavailable' });
             showToast("Unable to get your location.", "error");
         }
         // Load data for the current (default) view
@@ -1049,6 +1099,7 @@ function findNearest() {
 // Initialize map with user location on page load
 function initializeWithUserLocation() {
     if (!navigator.geolocation) {
+        trackEvent('geolocation_failed', { reason: 'not_supported' });
         showToast("Geolocation not supported by your browser.", "error");
         setTimeout(loadDataForCurrentBounds, 500);
         return;
@@ -1089,8 +1140,10 @@ function initializeWithUserLocation() {
         (error) => {
             // If user denies location or there's an error, keep default view and load data
             if (error.code === error.PERMISSION_DENIED) {
+                trackEvent('geolocation_failed', { reason: 'permission_denied' });
                 showToast("Location denied. Showing toilets for Melbourne area.", "error");
             } else {
+                trackEvent('geolocation_failed', { reason: 'unavailable' });
                 showToast("Unable to get your location. Showing default area.", "error");
             }
             
@@ -1115,11 +1168,11 @@ function startPeriodicThemeUpdates() {
 }
 
 map.on('moveend', () => { document.getElementById('btn-search-area').style.display = 'block'; });
-function triggerSearchArea() { loadDataForCurrentBounds(); }
+function triggerSearchArea() { trackEvent('search_this_area_clicked'); loadDataForCurrentBounds(); }
 
 // ... (rest of the code remains the same)
 // --- Modals & Filters ---
-function toggleFilter(t) { activeFilters[t] = !activeFilters[t]; document.getElementById('chip-'+t).classList.toggle('active'); renderMapPoints(); }
+function toggleFilter(t) { activeFilters[t] = !activeFilters[t]; document.getElementById('chip-'+t).classList.toggle('active'); trackEvent('filter_toggled', { filter: t, enabled: activeFilters[t] }); renderMapPoints(); }
 function toggleMoreFilters() {
     const extra = document.getElementById('filters-extra');
     const label = document.getElementById('chip-more-label');
@@ -1137,6 +1190,7 @@ function openModal(id, name) {
     document.getElementById('reviewModal').style.display = 'flex'; 
     currentRating = 0; 
     updateStarsUI(); 
+    trackEvent('rate_modal_opened', { facility_id: String(id) });
 }
 
 function closeModal() { document.getElementById('reviewModal').style.display = 'none'; }
@@ -1202,6 +1256,7 @@ async function submitFeedback() {
             throw new Error('request failed');
         }
 
+        trackEvent('feedback_submitted_success');
         showToast('Feedback sent. Thank you!', 'success');
         if (messageEl) {
             messageEl.value = '';
@@ -1211,6 +1266,7 @@ async function submitFeedback() {
         }
         closeFeedbackModal();
     } catch (e) {
+        trackEvent('feedback_submitted_failed', { reason: 'network' });
         showToast('Unable to send feedback right now.', 'error');
     } finally {
         feedbackSubmitting = false;
@@ -1225,13 +1281,19 @@ async function submitReview() {
             body: JSON.stringify({ facility_id: currentReviewFacilityId.toString(), rating: currentRating, review_text: document.getElementById('reviewText').value })
         });
         if (res.ok) { 
+            trackEvent('review_submitted_success', { facility_id: String(currentReviewFacilityId), rating: currentRating });
             showToast("Review saved!", "success"); 
             closeModal(); 
             delete ratingCache[currentReviewFacilityId]; 
             delete ratingSummaryCache[currentReviewFacilityId];
             loadDataForCurrentBounds(); 
+        } else {
+            trackEvent('review_submitted_failed', { status: res.status });
         }
-    } catch (e) { showToast("Error connecting.", "error"); }
+    } catch (e) {
+        trackEvent('review_submitted_failed', { reason: 'network' });
+        showToast("Error connecting.", "error");
+    }
 }
 
 const REVIEWS_PAGE_SIZE = 50;
@@ -1344,7 +1406,25 @@ async function openReviewsList(facilityId, name) {
 }
 function closeReviewsList() { document.getElementById('reviewsListModal').style.display = 'none'; }
 
-map.whenReady(() => initializeWithUserLocation());
+window.addEventListener('error', (event) => {
+    trackEvent('frontend_error', {
+        message: event.message || 'unknown',
+        source: event.filename ? event.filename.split('/').pop() : null,
+        line: event.lineno || null
+    });
+});
+
+window.addEventListener('unhandledrejection', (event) => {
+    const reason = event.reason;
+    trackEvent('frontend_unhandled_rejection', {
+        message: reason && reason.message ? reason.message : String(reason || 'unknown')
+    });
+});
+
+map.whenReady(() => {
+    trackEvent('app_loaded', { hostname: window.location.hostname });
+    initializeWithUserLocation();
+});
 
 // --- PWA: service worker registration + install prompt + offline indicator ---
 let _deferredInstallPrompt = null;
