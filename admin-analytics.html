@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LooFinder Admin Analytics</title>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap">
+    <style>
+        :root {
+            --bg: #f8fafc;
+            --card: #ffffff;
+            --text: #0f172a;
+            --muted: #64748b;
+            --line: #e2e8f0;
+            --brand: #007aff;
+            --brand-strong: #005ce6;
+            --ok: #0ea5e9;
+            --warn: #f59e0b;
+            --danger: #ef4444;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            font-family: 'Inter', sans-serif;
+            background: radial-gradient(circle at 10% -10%, #dbeafe 0%, var(--bg) 45%);
+            color: var(--text);
+            min-height: 100vh;
+            padding: 24px;
+        }
+
+        .container {
+            max-width: 1100px;
+            margin: 0 auto;
+        }
+
+        .header {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 18px;
+        }
+
+        .title {
+            margin: 0;
+            font-size: 28px;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+        }
+
+        .sub {
+            margin: 6px 0 0;
+            color: var(--muted);
+            font-size: 14px;
+        }
+
+        .back-link {
+            text-decoration: none;
+            color: var(--brand);
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .panel {
+            background: var(--card);
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            padding: 16px;
+            box-shadow: 0 8px 28px rgba(15, 23, 42, 0.08);
+            margin-bottom: 14px;
+        }
+
+        .controls {
+            display: grid;
+            grid-template-columns: 1fr 140px auto;
+            gap: 10px;
+            align-items: end;
+        }
+
+        label {
+            display: block;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--muted);
+            margin-bottom: 6px;
+        }
+
+        input, select {
+            width: 100%;
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            padding: 10px 12px;
+            font-size: 14px;
+            outline: none;
+            background: #fff;
+        }
+
+        input:focus, select:focus {
+            border-color: var(--brand);
+            box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.12);
+        }
+
+        .btn {
+            border: none;
+            background: var(--brand);
+            color: #fff;
+            border-radius: 10px;
+            padding: 10px 14px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: background 0.2s ease;
+        }
+
+        .btn:hover { background: var(--brand-strong); }
+
+        .status {
+            min-height: 20px;
+            font-size: 13px;
+            color: var(--muted);
+            margin-top: 10px;
+        }
+
+        .status.error { color: var(--danger); }
+
+        .metrics {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(140px, 1fr));
+            gap: 10px;
+            margin-bottom: 14px;
+        }
+
+        .metric {
+            background: #fff;
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            padding: 12px;
+        }
+
+        .metric .label {
+            color: var(--muted);
+            font-size: 12px;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        .metric .value {
+            font-size: 24px;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+        }
+
+        .metric.ok .value { color: var(--ok); }
+        .metric.warn .value { color: var(--warn); }
+        .metric.danger .value { color: var(--danger); }
+
+        .table-wrap {
+            overflow: auto;
+            border: 1px solid var(--line);
+            border-radius: 12px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            min-width: 760px;
+            background: #fff;
+        }
+
+        th, td {
+            text-align: left;
+            border-bottom: 1px solid var(--line);
+            padding: 10px 12px;
+            font-size: 13px;
+            vertical-align: top;
+        }
+
+        th {
+            font-size: 12px;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            background: #f8fafc;
+            position: sticky;
+            top: 0;
+        }
+
+        .events-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+
+        .event-pill {
+            border: 1px solid #dbeafe;
+            background: #eff6ff;
+            color: #1d4ed8;
+            border-radius: 999px;
+            padding: 2px 8px;
+            font-size: 12px;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+
+        @media (max-width: 900px) {
+            .controls { grid-template-columns: 1fr 1fr; }
+            .controls .btn { grid-column: span 2; }
+            .metrics { grid-template-columns: repeat(2, minmax(140px, 1fr)); }
+        }
+
+        @media (max-width: 520px) {
+            body { padding: 14px; }
+            .metrics { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div>
+                <h1 class="title">Admin Analytics</h1>
+                <p class="sub">LooFinder event summary from <code>/api/admin/analytics/summary</code></p>
+            </div>
+            <a class="back-link" href="/index.html">← Back to LooFinder</a>
+        </div>
+
+        <div class="panel">
+            <div class="controls">
+                <div>
+                    <label for="token-input">Admin token</label>
+                    <input id="token-input" type="password" placeholder="ANALYTICS_ADMIN_TOKEN" autocomplete="off">
+                </div>
+                <div>
+                    <label for="days-select">Days</label>
+                    <select id="days-select">
+                        <option value="7" selected>7</option>
+                        <option value="14">14</option>
+                        <option value="30">30</option>
+                        <option value="60">60</option>
+                        <option value="90">90</option>
+                    </select>
+                </div>
+                <button id="load-btn" class="btn" type="button">Load summary</button>
+            </div>
+            <div id="status" class="status">Enter token and load analytics.</div>
+        </div>
+
+        <div class="metrics" id="metrics">
+            <div class="metric"><div class="label">Days Loaded</div><div class="value" id="m-days">-</div></div>
+            <div class="metric"><div class="label">Total Sessions</div><div class="value" id="m-sessions">-</div></div>
+            <div class="metric"><div class="label">Total Events</div><div class="value" id="m-events">-</div></div>
+            <div class="metric ok"><div class="label">Directions Clicks</div><div class="value" id="m-directions">-</div></div>
+            <div class="metric warn"><div class="label">Review Success</div><div class="value" id="m-review-success">-</div></div>
+            <div class="metric danger"><div class="label">Frontend Errors</div><div class="value" id="m-frontend-errors">-</div></div>
+            <div class="metric"><div class="label">Feedback Success</div><div class="value" id="m-feedback-success">-</div></div>
+            <div class="metric"><div class="label">Backend Unavailable</div><div class="value" id="m-backend-unavailable">-</div></div>
+        </div>
+
+        <div class="panel">
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Sessions</th>
+                            <th>Total Events</th>
+                            <th>Top Events</th>
+                        </tr>
+                    </thead>
+                    <tbody id="daily-rows">
+                        <tr>
+                            <td colspan="4" style="color:#64748b;">No data loaded yet.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const IS_LOCAL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname === '';
+        const API_BASE = IS_LOCAL ? 'http://localhost:8000' : 'https://loofinder-api.onrender.com';
+        const TOKEN_KEY = 'loofinder_analytics_admin_token';
+
+        const tokenInput = document.getElementById('token-input');
+        const daysSelect = document.getElementById('days-select');
+        const loadBtn = document.getElementById('load-btn');
+        const statusEl = document.getElementById('status');
+        const dailyRowsEl = document.getElementById('daily-rows');
+
+        const metricEls = {
+            days: document.getElementById('m-days'),
+            sessions: document.getElementById('m-sessions'),
+            events: document.getElementById('m-events'),
+            directions: document.getElementById('m-directions'),
+            reviewSuccess: document.getElementById('m-review-success'),
+            frontendErrors: document.getElementById('m-frontend-errors'),
+            feedbackSuccess: document.getElementById('m-feedback-success'),
+            backendUnavailable: document.getElementById('m-backend-unavailable')
+        };
+
+        tokenInput.value = sessionStorage.getItem(TOKEN_KEY) || '';
+
+        function setStatus(message, isError = false) {
+            statusEl.textContent = message;
+            statusEl.classList.toggle('error', isError);
+        }
+
+        function numberFormat(value) {
+            return Number(value || 0).toLocaleString();
+        }
+
+        function sumEvent(daily, eventName) {
+            return daily.reduce((total, day) => total + Number((day.events || {})[eventName] || 0), 0);
+        }
+
+        function updateMetrics(data) {
+            const daily = Array.isArray(data.daily) ? data.daily : [];
+            const totalSessions = daily.reduce((sum, day) => sum + Number(day.sessions || 0), 0);
+            const totalEvents = daily.reduce((sum, day) => sum + Number(day.total_events || 0), 0);
+
+            metricEls.days.textContent = numberFormat(data.days);
+            metricEls.sessions.textContent = numberFormat(totalSessions);
+            metricEls.events.textContent = numberFormat(totalEvents);
+            metricEls.directions.textContent = numberFormat(sumEvent(daily, 'directions_clicked'));
+            metricEls.reviewSuccess.textContent = numberFormat(sumEvent(daily, 'review_submitted_success'));
+            metricEls.frontendErrors.textContent = numberFormat(sumEvent(daily, 'frontend_error') + sumEvent(daily, 'frontend_unhandled_rejection'));
+            metricEls.feedbackSuccess.textContent = numberFormat(sumEvent(daily, 'feedback_submitted_success'));
+            metricEls.backendUnavailable.textContent = numberFormat(sumEvent(daily, 'backend_unavailable_marked'));
+        }
+
+        function renderDailyRows(data) {
+            const daily = Array.isArray(data.daily) ? data.daily : [];
+            if (daily.length === 0) {
+                dailyRowsEl.innerHTML = '<tr><td colspan="4" style="color:#64748b;">No events found for this range.</td></tr>';
+                return;
+            }
+
+            dailyRowsEl.innerHTML = '';
+            for (const day of daily) {
+                const tr = document.createElement('tr');
+
+                const dateCell = document.createElement('td');
+                dateCell.textContent = day.date || '-';
+
+                const sessionCell = document.createElement('td');
+                sessionCell.textContent = numberFormat(day.sessions);
+
+                const totalCell = document.createElement('td');
+                totalCell.textContent = numberFormat(day.total_events);
+
+                const eventsCell = document.createElement('td');
+                const eventsWrap = document.createElement('div');
+                eventsWrap.className = 'events-list';
+
+                const eventEntries = Object.entries(day.events || {}).sort((a, b) => b[1] - a[1]);
+                if (eventEntries.length === 0) {
+                    eventsCell.textContent = '-';
+                } else {
+                    for (const [eventName, count] of eventEntries.slice(0, 10)) {
+                        const pill = document.createElement('span');
+                        pill.className = 'event-pill';
+                        pill.textContent = `${eventName}: ${numberFormat(count)}`;
+                        eventsWrap.appendChild(pill);
+                    }
+                    eventsCell.appendChild(eventsWrap);
+                }
+
+                tr.appendChild(dateCell);
+                tr.appendChild(sessionCell);
+                tr.appendChild(totalCell);
+                tr.appendChild(eventsCell);
+                dailyRowsEl.appendChild(tr);
+            }
+        }
+
+        async function loadSummary() {
+            const token = tokenInput.value.trim();
+            if (!token) {
+                setStatus('Enter an admin token first.', true);
+                return;
+            }
+
+            const days = Number(daysSelect.value || 7);
+            sessionStorage.setItem(TOKEN_KEY, token);
+            setStatus('Loading summary...');
+
+            try {
+                const url = `${API_BASE}/api/admin/analytics/summary?days=${days}&token=${encodeURIComponent(token)}`;
+                const response = await fetch(url, { method: 'GET' });
+                if (!response.ok) {
+                    if (response.status === 401) {
+                        throw new Error('Unauthorized token (401).');
+                    }
+                    if (response.status === 404) {
+                        throw new Error('Analytics admin token is not configured on the backend (404).');
+                    }
+                    throw new Error(`Request failed (${response.status}).`);
+                }
+
+                const data = await response.json();
+                updateMetrics(data);
+                renderDailyRows(data);
+                setStatus(`Loaded ${numberFormat((data.daily || []).length)} day(s) of analytics.`);
+            } catch (error) {
+                setStatus(error.message || 'Failed to load analytics.', true);
+            }
+        }
+
+        loadBtn.addEventListener('click', loadSummary);
+        tokenInput.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                loadSummary();
+            }
+        });
+    </script>
+</body>
+</html>

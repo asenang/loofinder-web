@@ -8,7 +8,7 @@
  *     fall back to cache so the last-seen data still renders offline.
  *   - Everything else: network-first.
  */
-const SW_VERSION = "v1.0.3";
+const SW_VERSION = "v1.0.6";
 const APP_CACHE = `loofinder-app-${SW_VERSION}`;
 const TILE_CACHE = `loofinder-tiles-${SW_VERSION}`;
 const API_CACHE = `loofinder-api-${SW_VERSION}`;
@@ -21,6 +21,8 @@ const TILE_CACHE_MAX_ENTRIES = 400;
 const APP_SHELL = [
   "/",
   "/index.html",
+  "/admin-analytics.html",
+  "/privacy.html",
   "/assets/site.webmanifest",
   "/assets/logos/loofinder-logo-icon.svg",
   "/assets/android-chrome-192x192.png",

@@ -101,8 +101,8 @@ p { color: #7f8c8d; font-size: 14px; margin-bottom: 16px; }
 .support-desktop-dropdown {
     position: absolute;
     right: calc(100% - 2px);
-    bottom: 50%;
-    transform: translateY(50%) translateX(8px);
+    bottom: 10px;
+    transform: translateY(0) translateX(8px);
     opacity: 0;
     pointer-events: none;
     min-width: 170px;
@@ -117,7 +117,7 @@ p { color: #7f8c8d; font-size: 14px; margin-bottom: 16px; }
 .support-hover-desktop:focus-within .support-desktop-dropdown {
     opacity: 1;
     pointer-events: auto;
-    transform: translateY(50%) translateX(0);
+    transform: translateY(0) translateX(0);
 }
 .support-desktop-dropdown a,
 .support-desktop-dropdown .support-menu-action {
@@ -141,6 +141,11 @@ p { color: #7f8c8d; font-size: 14px; margin-bottom: 16px; }
 .support-desktop-dropdown .support-menu-action:focus-visible {
     background: #f1f5f9;
     outline: none;
+}
+.support-desktop-dropdown .support-menu-divider {
+    height: 1px;
+    margin: 2px 8px 2px;
+    background: #cbd5e1;
 }
 
 .support-menu-mobile {
@@ -477,6 +482,11 @@ textarea { width: 100%; padding: 12px; border: 1px solid #e2e8f0; border-radius:
         background: #f1f5f9;
         outline: none;
     }
+    .support-menu-dropdown .support-menu-divider {
+        height: 1px;
+        margin: 2px 8px 2px;
+        background: #cbd5e1;
+    }
 
     .theme-toggle {
         top: 20px;
@@ -529,6 +539,9 @@ textarea { width: 100%; padding: 12px; border: 1px solid #e2e8f0; border-radius:
 }
 .theme-dark .support-menu-dropdown .support-menu-action {
     color: #f8fafc;
+}
+.theme-dark .support-menu-dropdown .support-menu-divider {
+    background: #64748b;
 }
 .theme-dark .support-menu-dropdown a:hover,
 .theme-dark .support-menu-dropdown a:focus-visible,
