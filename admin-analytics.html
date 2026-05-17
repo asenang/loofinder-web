@@ -205,6 +205,36 @@
             white-space: nowrap;
         }
 
+        .stack {
+            display: grid;
+            gap: 14px;
+        }
+
+        .issue-type-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 4px;
+            min-height: 22px;
+        }
+
+        .issue-type-pill {
+            border: 1px solid #fde68a;
+            background: #fffbeb;
+            color: #92400e;
+            border-radius: 999px;
+            padding: 4px 10px;
+            font-size: 12px;
+            font-weight: 700;
+            white-space: nowrap;
+        }
+
+        .empty-note {
+            color: var(--muted);
+            font-size: 13px;
+            margin: 0;
+        }
+
         @media (max-width: 900px) {
             .controls { grid-template-columns: 1fr 1fr; }
             .controls .btn { grid-column: span 2; }
@@ -257,6 +287,19 @@
             <div class="metric danger"><div class="label">Frontend Errors</div><div class="value" id="m-frontend-errors">-</div></div>
             <div class="metric"><div class="label">Feedback Success</div><div class="value" id="m-feedback-success">-</div></div>
             <div class="metric"><div class="label">Backend Unavailable</div><div class="value" id="m-backend-unavailable">-</div></div>
+            <div class="metric ok"><div class="label">Issue Reports (Success)</div><div class="value" id="m-issue-success">-</div></div>
+            <div class="metric danger"><div class="label">Issue Reports (Failed)</div><div class="value" id="m-issue-failed">-</div></div>
+            <div class="metric warn"><div class="label">Issue Reports (Moderated)</div><div class="value" id="m-issue-filtered">-</div></div>
+            <div class="metric"><div class="label">Issue Moderation Rate</div><div class="value" id="m-issue-rate">-</div></div>
+        </div>
+
+        <div class="panel stack">
+            <div>
+                <label style="margin-bottom:8px;">Issue Reports by Type</label>
+                <div id="issue-type-list" class="issue-type-list">
+                    <p class="empty-note">No issue reports loaded yet.</p>
+                </div>
+            </div>
         </div>
 
         <div class="panel">
@@ -299,8 +342,13 @@
             reviewSuccess: document.getElementById('m-review-success'),
             frontendErrors: document.getElementById('m-frontend-errors'),
             feedbackSuccess: document.getElementById('m-feedback-success'),
-            backendUnavailable: document.getElementById('m-backend-unavailable')
+            backendUnavailable: document.getElementById('m-backend-unavailable'),
+            issueSuccess: document.getElementById('m-issue-success'),
+            issueFailed: document.getElementById('m-issue-failed'),
+            issueFiltered: document.getElementById('m-issue-filtered'),
+            issueRate: document.getElementById('m-issue-rate')
         };
+        const issueTypeListEl = document.getElementById('issue-type-list');
 
         tokenInput.value = sessionStorage.getItem(TOKEN_KEY) || '';
 
@@ -317,10 +365,70 @@
             return daily.reduce((total, day) => total + Number((day.events || {})[eventName] || 0), 0);
         }
 
+        function buildIssueSummary(data) {
+            const daily = Array.isArray(data.daily) ? data.daily : [];
+            const provided = data.issue_reports && typeof data.issue_reports === 'object' ? data.issue_reports : null;
+
+            if (provided) {
+                return {
+                    submittedSuccess: Number(provided.submitted_success_total || 0),
+                    submittedFailed: Number(provided.submitted_failed_total || 0),
+                    filteredSuccess: Number(provided.filtered_success_total || 0),
+                    byType: provided.by_type && typeof provided.by_type === 'object' ? provided.by_type : {}
+                };
+            }
+
+            const byType = {};
+            let filteredSuccess = 0;
+            let submittedSuccess = 0;
+            let submittedFailed = 0;
+
+            for (const day of daily) {
+                const dayIssue = day.issue_reports || {};
+                submittedSuccess += Number(dayIssue.submitted_success || 0);
+                submittedFailed += Number(dayIssue.submitted_failed || 0);
+                filteredSuccess += Number(dayIssue.filtered_success || 0);
+
+                const dayByType = dayIssue.by_type || {};
+                for (const [issueType, count] of Object.entries(dayByType)) {
+                    byType[issueType] = Number(byType[issueType] || 0) + Number(count || 0);
+                }
+            }
+
+            if (submittedSuccess === 0) {
+                submittedSuccess = sumEvent(daily, 'issue_report_submitted_success');
+            }
+            if (submittedFailed === 0) {
+                submittedFailed = sumEvent(daily, 'issue_report_submitted_failed');
+            }
+
+            return { submittedSuccess, submittedFailed, filteredSuccess, byType };
+        }
+
+        function renderIssueTypeBreakdown(issueSummary) {
+            const entries = Object.entries(issueSummary.byType || {}).sort((a, b) => Number(b[1] || 0) - Number(a[1] || 0));
+            issueTypeListEl.innerHTML = '';
+            if (entries.length === 0) {
+                issueTypeListEl.innerHTML = '<p class="empty-note">No issue reports found for this range.</p>';
+                return;
+            }
+
+            for (const [issueType, count] of entries) {
+                const pill = document.createElement('span');
+                pill.className = 'issue-type-pill';
+                pill.textContent = `${issueType}: ${numberFormat(count)}`;
+                issueTypeListEl.appendChild(pill);
+            }
+        }
+
         function updateMetrics(data) {
             const daily = Array.isArray(data.daily) ? data.daily : [];
             const totalSessions = daily.reduce((sum, day) => sum + Number(day.sessions || 0), 0);
             const totalEvents = daily.reduce((sum, day) => sum + Number(day.total_events || 0), 0);
+            const issueSummary = buildIssueSummary(data);
+            const issueModerationRate = issueSummary.submittedSuccess > 0
+                ? (issueSummary.filteredSuccess / issueSummary.submittedSuccess) * 100
+                : 0;
 
             metricEls.days.textContent = numberFormat(data.days);
             metricEls.sessions.textContent = numberFormat(totalSessions);
@@ -330,6 +438,12 @@
             metricEls.frontendErrors.textContent = numberFormat(sumEvent(daily, 'frontend_error') + sumEvent(daily, 'frontend_unhandled_rejection'));
             metricEls.feedbackSuccess.textContent = numberFormat(sumEvent(daily, 'feedback_submitted_success'));
             metricEls.backendUnavailable.textContent = numberFormat(sumEvent(daily, 'backend_unavailable_marked'));
+            metricEls.issueSuccess.textContent = numberFormat(issueSummary.submittedSuccess);
+            metricEls.issueFailed.textContent = numberFormat(issueSummary.submittedFailed);
+            metricEls.issueFiltered.textContent = numberFormat(issueSummary.filteredSuccess);
+            metricEls.issueRate.textContent = `${issueModerationRate.toFixed(1)}%`;
+
+            renderIssueTypeBreakdown(issueSummary);
         }
 
         function renderDailyRows(data) {
