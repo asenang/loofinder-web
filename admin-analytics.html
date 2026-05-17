@@ -235,6 +235,34 @@
             margin: 0;
         }
 
+        .result-badge {
+            display: inline-block;
+            border-radius: 999px;
+            padding: 3px 8px;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+            white-space: nowrap;
+        }
+
+        .result-success {
+            background: #ecfeff;
+            border: 1px solid #a5f3fc;
+            color: #0c4a6e;
+        }
+
+        .result-failed {
+            background: #fff1f2;
+            border: 1px solid #fecdd3;
+            color: #9f1239;
+        }
+
+        .mono {
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+            font-size: 12px;
+        }
+
         @media (max-width: 900px) {
             .controls { grid-template-columns: 1fr 1fr; }
             .controls .btn { grid-column: span 2; }
@@ -303,6 +331,29 @@
         </div>
 
         <div class="panel">
+            <label style="margin-bottom:8px;">Issue Report Triage Activity</label>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Created</th>
+                            <th>Issue Type</th>
+                            <th>Facility</th>
+                            <th>Result</th>
+                            <th>Moderated</th>
+                            <th>Failure Detail</th>
+                        </tr>
+                    </thead>
+                    <tbody id="issue-report-rows">
+                        <tr>
+                            <td colspan="6" style="color:#64748b;">No issue report activity loaded yet.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="panel">
             <div class="table-wrap">
                 <table>
                     <thead>
@@ -333,6 +384,7 @@
         const loadBtn = document.getElementById('load-btn');
         const statusEl = document.getElementById('status');
         const dailyRowsEl = document.getElementById('daily-rows');
+        const issueReportRowsEl = document.getElementById('issue-report-rows');
 
         const metricEls = {
             days: document.getElementById('m-days'),
@@ -359,6 +411,13 @@
 
         function numberFormat(value) {
             return Number(value || 0).toLocaleString();
+        }
+
+        function formatDateTime(isoString) {
+            if (!isoString) return '-';
+            const date = new Date(isoString);
+            if (Number.isNaN(date.getTime())) return '-';
+            return date.toLocaleString();
         }
 
         function sumEvent(daily, eventName) {
@@ -418,6 +477,58 @@
                 pill.className = 'issue-type-pill';
                 pill.textContent = `${issueType}: ${numberFormat(count)}`;
                 issueTypeListEl.appendChild(pill);
+            }
+        }
+
+        function renderIssueReportRows(issueData) {
+            const items = Array.isArray(issueData.items) ? issueData.items : [];
+            issueReportRowsEl.innerHTML = '';
+
+            if (items.length === 0) {
+                issueReportRowsEl.innerHTML = '<tr><td colspan="6" style="color:#64748b;">No issue reports found for this range.</td></tr>';
+                return;
+            }
+
+            for (const item of items) {
+                const tr = document.createElement('tr');
+
+                const createdCell = document.createElement('td');
+                createdCell.textContent = formatDateTime(item.created_at);
+
+                const typeCell = document.createElement('td');
+                typeCell.textContent = item.issue_type || 'unknown';
+
+                const facilityCell = document.createElement('td');
+                facilityCell.className = 'mono';
+                facilityCell.textContent = item.facility_id || 'unknown';
+
+                const resultCell = document.createElement('td');
+                const badge = document.createElement('span');
+                const result = item.result === 'success' ? 'success' : 'failed';
+                badge.className = `result-badge ${result === 'success' ? 'result-success' : 'result-failed'}`;
+                badge.textContent = result;
+                resultCell.appendChild(badge);
+
+                const moderatedCell = document.createElement('td');
+                moderatedCell.textContent = item.content_filtered ? 'Yes' : 'No';
+
+                const detailCell = document.createElement('td');
+                if (item.status || item.reason) {
+                    detailCell.textContent = [
+                        item.status ? `status ${item.status}` : '',
+                        item.reason ? String(item.reason) : ''
+                    ].filter(Boolean).join(' - ');
+                } else {
+                    detailCell.textContent = '-';
+                }
+
+                tr.appendChild(createdCell);
+                tr.appendChild(typeCell);
+                tr.appendChild(facilityCell);
+                tr.appendChild(resultCell);
+                tr.appendChild(moderatedCell);
+                tr.appendChild(detailCell);
+                issueReportRowsEl.appendChild(tr);
             }
         }
 
@@ -503,22 +614,39 @@
             setStatus('Loading summary...');
 
             try {
-                const url = `${API_BASE}/api/admin/analytics/summary?days=${days}&token=${encodeURIComponent(token)}`;
-                const response = await fetch(url, { method: 'GET' });
-                if (!response.ok) {
-                    if (response.status === 401) {
+                const encodedToken = encodeURIComponent(token);
+                const summaryUrl = `${API_BASE}/api/admin/analytics/summary?days=${days}&token=${encodedToken}`;
+                const issueUrl = `${API_BASE}/api/admin/analytics/issue-reports?days=${days}&limit=200&token=${encodedToken}`;
+
+                const [summaryResponse, issueResponse] = await Promise.all([
+                    fetch(summaryUrl, { method: 'GET' }),
+                    fetch(issueUrl, { method: 'GET' })
+                ]);
+
+                if (!summaryResponse.ok) {
+                    if (summaryResponse.status === 401) {
                         throw new Error('Unauthorized token (401).');
                     }
-                    if (response.status === 404) {
+                    if (summaryResponse.status === 404) {
                         throw new Error('Analytics admin token is not configured on the backend (404).');
                     }
-                    throw new Error(`Request failed (${response.status}).`);
+                    throw new Error(`Summary request failed (${summaryResponse.status}).`);
                 }
 
-                const data = await response.json();
-                updateMetrics(data);
-                renderDailyRows(data);
-                setStatus(`Loaded ${numberFormat((data.daily || []).length)} day(s) of analytics.`);
+                const summaryData = await summaryResponse.json();
+                updateMetrics(summaryData);
+                renderDailyRows(summaryData);
+
+                let issueCount = 0;
+                if (issueResponse.ok) {
+                    const issueData = await issueResponse.json();
+                    renderIssueReportRows(issueData);
+                    issueCount = Array.isArray(issueData.items) ? issueData.items.length : 0;
+                } else {
+                    issueReportRowsEl.innerHTML = '<tr><td colspan="6" style="color:#64748b;">Issue triage endpoint unavailable for this backend version.</td></tr>';
+                }
+
+                setStatus(`Loaded ${numberFormat((summaryData.daily || []).length)} day(s) and ${numberFormat(issueCount)} triage item(s).`);
             } catch (error) {
                 setStatus(error.message || 'Failed to load analytics.', true);
             }
