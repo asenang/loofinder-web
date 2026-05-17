@@ -1,6 +1,18 @@
 * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Inter', sans-serif; }
 body, html { height: 100%; background-color: #f4f7f6; overflow: hidden; }
 
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
 #map { position: absolute; top: 0; left: 0; height: 100%; width: 100%; z-index: 1; }
 
 /* --- Sidebar Layout (Desktop) --- */
@@ -114,6 +126,7 @@ p { color: #7f8c8d; font-size: 14px; margin-bottom: 16px; }
     transition: opacity 0.2s ease, transform 0.2s ease;
 }
 .support-hover-desktop:hover .support-desktop-dropdown,
+.support-hover-desktop.is-open .support-desktop-dropdown,
 .support-hover-desktop:focus-within .support-desktop-dropdown {
     opacity: 1;
     pointer-events: auto;
@@ -141,6 +154,19 @@ p { color: #7f8c8d; font-size: 14px; margin-bottom: 16px; }
 .support-desktop-dropdown .support-menu-action:focus-visible {
     background: #f1f5f9;
     outline: none;
+}
+.support-button-floating:focus-visible,
+.support-menu-toggle:focus-visible,
+.support-menu-dropdown a:focus-visible,
+.support-menu-dropdown .support-menu-action:focus-visible,
+.support-desktop-dropdown a:focus-visible,
+.support-desktop-dropdown .support-menu-action:focus-visible,
+.modal-content button:focus-visible,
+.modal-content textarea:focus-visible,
+.modal-content input:focus-visible,
+.star:focus-visible {
+    outline: 2px solid #2563eb;
+    outline-offset: 2px;
 }
 .support-desktop-dropdown .support-menu-divider {
     height: 1px;
@@ -314,6 +340,7 @@ button.btn-rate, .btn-rate { background: #f1f5f9; color: #4a5568 !important; bor
 .star { font-size: 28px; color: #cbd5e1; cursor: pointer; transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), color 0.2s; display: inline-block; }
 .star:active { transform: scale(0.8); }
 .star:hover { transform: scale(1.1); }
+.star[role="radio"] { user-select: none; }
 .star.selected, .star.selected ~ .star { color: #f59e0b; animation: starPop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); }
 @keyframes starPop {
     0% { transform: scale(1); }
@@ -577,6 +604,18 @@ textarea { width: 100%; padding: 12px; border: 1px solid #e2e8f0; border-radius:
 .theme-dark .support-menu-dropdown .support-menu-action:hover,
 .theme-dark .support-menu-dropdown .support-menu-action:focus-visible {
     background: #334155;
+}
+.theme-dark .support-button-floating:focus-visible,
+.theme-dark .support-menu-toggle:focus-visible,
+.theme-dark .support-menu-dropdown a:focus-visible,
+.theme-dark .support-menu-dropdown .support-menu-action:focus-visible,
+.theme-dark .support-desktop-dropdown a:focus-visible,
+.theme-dark .support-desktop-dropdown .support-menu-action:focus-visible,
+.theme-dark .modal-content button:focus-visible,
+.theme-dark .modal-content textarea:focus-visible,
+.theme-dark .modal-content input:focus-visible,
+.theme-dark .star:focus-visible {
+    outline-color: #60a5fa;
 }
 
 @media (max-width: 768px) {
