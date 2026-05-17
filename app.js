@@ -1216,6 +1216,27 @@ function closeFeedbackModal() {
     modalEl.style.display = 'none';
 }
 
+function openInstallHelpModal() {
+    const modalEl = document.getElementById('installHelpModal');
+    if (!modalEl) {
+        return;
+    }
+
+    setSupportMenuOpen(false);
+    updateInstallNowButton();
+    modalEl.style.display = 'flex';
+    trackEvent('install_help_opened', { native_prompt_available: Boolean(_deferredInstallPrompt) });
+}
+
+function closeInstallHelpModal() {
+    const modalEl = document.getElementById('installHelpModal');
+    if (!modalEl) {
+        return;
+    }
+
+    modalEl.style.display = 'none';
+}
+
 async function submitFeedback() {
     if (feedbackSubmitting) {
         return;
@@ -1457,33 +1478,40 @@ if ("serviceWorker" in navigator) {
     });
 }
 
-function _setInstallActionVisible(visible) {
-    document.querySelectorAll(".install-action").forEach((el) => {
-        el.style.display = visible ? "" : "none";
-    });
+function updateInstallNowButton() {
+    const buttonEl = document.getElementById("install-now-button");
+    if (!buttonEl) {
+        return;
+    }
+
+    buttonEl.style.display = _deferredInstallPrompt && !isStandalonePWA() ? "" : "none";
 }
 
 window.addEventListener("beforeinstallprompt", (e) => {
     e.preventDefault();
     if (isStandalonePWA()) return; // already installed; don't surface the prompt
     _deferredInstallPrompt = e;
-    _setInstallActionVisible(true);
+    updateInstallNowButton();
 });
 
 window.addEventListener("appinstalled", () => {
     _deferredInstallPrompt = null;
-    _setInstallActionVisible(false);
+    updateInstallNowButton();
+    closeInstallHelpModal();
     showToast("LooFinder installed!", "success");
 });
 
 async function triggerInstallPrompt() {
-    if (!_deferredInstallPrompt) return;
+    if (!_deferredInstallPrompt) {
+        showToast("Use your browser menu or Share button to install LooFinder.", "error");
+        return;
+    }
     _deferredInstallPrompt.prompt();
     try {
         await _deferredInstallPrompt.userChoice;
     } catch {}
     _deferredInstallPrompt = null;
-    _setInstallActionVisible(false);
+    updateInstallNowButton();
 }
 
 window.addEventListener("online", () => showToast("Back online", "success"));
