@@ -392,7 +392,7 @@ syncSupportMenuForViewport();
 // Environment Configuration
 const IS_LOCAL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname === '';
 const BACKEND_URL = IS_LOCAL ? "http://localhost:8000" : "https://loofinder-api.onrender.com";
-const APP_VERSION = "11.5";
+const APP_VERSION = "11.7";
 
 function getAnalyticsSessionId() {
     const key = 'loofinder-analytics-session-id';
@@ -443,11 +443,32 @@ let currentMapLayer = null;
 let activeFilters = { accessible: false, baby: false, free: false, unisex: false };
 let disableFacilityNameSaves = false;
 let backendUnavailable = false;
+let backendRetryAfterMs = 0;
 let currentLoadToken = 0;
 let progressiveRenderTimer = null;
 let feedbackSubmitting = false;
 const RATING_SUMMARY_TTL_MS = 60 * 1000;
+const BACKEND_RECOVERY_RETRY_MS = 30 * 1000;
 const ratingSummaryInFlight = new Set();
+
+function shouldAttemptBackendRequest() {
+    return !backendUnavailable || Date.now() >= backendRetryAfterMs;
+}
+
+function markBackendRecovered(source) {
+    if (!backendUnavailable) {
+        return;
+    }
+
+    backendUnavailable = false;
+    disableFacilityNameSaves = false;
+    backendRetryAfterMs = 0;
+    trackEvent('backend_recovered', { source });
+
+    if (_pendingFacilitySaves.length && !_pendingFacilitySaveTimer) {
+        _pendingFacilitySaveTimer = setTimeout(flushFacilitySaves, 0);
+    }
+}
 
 function markBackendUnavailable(reason) {
     if (!backendUnavailable) {
@@ -456,6 +477,7 @@ function markBackendUnavailable(reason) {
     }
     backendUnavailable = true;
     disableFacilityNameSaves = true;
+    backendRetryAfterMs = Date.now() + BACKEND_RECOVERY_RETRY_MS;
 }
 
 // Track unique ID alongside the name
@@ -528,7 +550,7 @@ const nameCache = {}; // Cache resolved names to avoid repeated API calls
 
 // Get resolved name from backend (cached in database)
 async function getResolvedNameFromBackend(facilityId) {
-    if (backendUnavailable) {
+    if (!shouldAttemptBackendRequest()) {
         return null;
     }
 
@@ -540,6 +562,7 @@ async function getResolvedNameFromBackend(facilityId) {
             }
             return null;
         }
+        markBackendRecovered('facility lookup');
 
         const data = await response.json();
         if (data.facility && data.facility.resolved_name) {
@@ -562,7 +585,7 @@ let _geocodeProxyEndpointAvailable = true;
 // Bulk fetch resolved names. Returns Map<string, string> for hits only.
 // Falls back to per-id lookups if the bulk endpoint isn't deployed.
 async function getResolvedNamesBulk(facilityIds) {
-    if (backendUnavailable || !facilityIds.length) {
+    if (!facilityIds.length || !shouldAttemptBackendRequest()) {
         return new Map();
     }
     const unique = Array.from(new Set(facilityIds.map(String)));
@@ -585,6 +608,7 @@ async function getResolvedNamesBulk(facilityIds) {
                     if (res.status >= 500) markBackendUnavailable('facility bulk lookup');
                     continue;
                 }
+                markBackendRecovered('facility bulk lookup');
                 const data = await res.json();
                 const facilities = data.facilities || {};
                 for (const id of Object.keys(facilities)) {
@@ -601,7 +625,7 @@ async function getResolvedNamesBulk(facilityIds) {
 
     // Legacy fallback: one GET per id (slower, but works with older deployments).
     for (const id of unique) {
-        if (backendUnavailable) break;
+        if (!shouldAttemptBackendRequest()) break;
         const name = await getResolvedNameFromBackend(id);
         if (name) result.set(id, name);
     }
@@ -612,7 +636,7 @@ async function getResolvedNamesBulk(facilityIds) {
 const _pendingFacilitySaves = [];
 let _pendingFacilitySaveTimer = null;
 function queueFacilitySave(payload) {
-    if (disableFacilityNameSaves || backendUnavailable) return;
+    if (disableFacilityNameSaves && !backendUnavailable) return;
     _pendingFacilitySaves.push(payload);
     if (_pendingFacilitySaveTimer) return;
     _pendingFacilitySaveTimer = setTimeout(flushFacilitySaves, 1500);
@@ -621,6 +645,10 @@ function queueFacilitySave(payload) {
 async function flushFacilitySaves() {
     _pendingFacilitySaveTimer = null;
     if (!_pendingFacilitySaves.length) return;
+    if (!shouldAttemptBackendRequest()) {
+        _pendingFacilitySaveTimer = setTimeout(flushFacilitySaves, BACKEND_RECOVERY_RETRY_MS);
+        return;
+    }
     const batch = _pendingFacilitySaves.splice(0, 200);
     try {
         const res = await fetch(`${BACKEND_URL}/api/facilities/bulk`, {
@@ -630,9 +658,12 @@ async function flushFacilitySaves() {
         });
         if (!res.ok && res.status >= 500) {
             markBackendUnavailable('facility bulk save');
+        } else if (res.ok) {
+            markBackendRecovered('facility bulk save');
         }
     } catch {
         markBackendUnavailable('facility bulk save');
+        _pendingFacilitySaves.unshift(...batch);
     }
     // If more accumulated during the request, schedule another flush
     if (_pendingFacilitySaves.length) {
@@ -670,13 +701,14 @@ async function _geocodeDirectFromNominatim(lat, lon) {
 }
 
 async function geocodeAddress(lat, lon) {
-    if (_geocodeProxyEndpointAvailable && !backendUnavailable) {
+    if (_geocodeProxyEndpointAvailable && shouldAttemptBackendRequest()) {
         try {
             const res = await fetch(`${BACKEND_URL}/api/geocode/reverse?lat=${lat}&lon=${lon}`);
             if (res.status === 404) {
                 // Proxy not deployed; flip flag and fall through.
                 _geocodeProxyEndpointAvailable = false;
             } else if (res.ok) {
+                markBackendRecovered('geocode');
                 const data = await res.json();
                 return data.name || null;
             } else {
@@ -1169,7 +1201,7 @@ function getListRatingHtml(facilityId, summary) {
 }
 
 async function fetchRatingSummaries(facilityIds, force = false) {
-    if (backendUnavailable) {
+    if (!shouldAttemptBackendRequest()) {
         return false;
     }
 
@@ -1204,6 +1236,7 @@ async function fetchRatingSummaries(facilityIds, force = false) {
             }
             return false;
         }
+        markBackendRecovered('rating summaries');
 
         const data = await response.json();
         const summaries = data.summaries || {};
@@ -1654,6 +1687,7 @@ async function submitFeedback() {
         if (!res.ok) {
             throw new Error('request failed');
         }
+        markBackendRecovered('feedback submit');
 
         trackEvent('feedback_submitted_success');
         showToast('Feedback sent. Thank you!', 'success');
@@ -1680,6 +1714,7 @@ async function submitReview() {
             body: JSON.stringify({ facility_id: currentReviewFacilityId.toString(), rating: currentRating, review_text: document.getElementById('reviewText').value })
         });
         if (res.ok) { 
+            markBackendRecovered('review submit');
             trackEvent('review_submitted_success', { facility_id: String(currentReviewFacilityId), rating: currentRating });
             showToast("Review saved!", "success"); 
             closeModal(); 
@@ -1734,6 +1769,7 @@ async function loadMoreReviews() {
             removeLoadMoreButton();
             return;
         }
+        markBackendRecovered('reviews list paging');
         const data = await res.json();
         const reviews = Array.isArray(data.reviews) ? data.reviews : [];
         const total = Number.isFinite(Number(data.total)) ? Number(data.total) : reviews.length;
@@ -1776,6 +1812,7 @@ async function openReviewsList(facilityId, name) {
             container.textContent = "Reviews unavailable right now.";
             return;
         }
+        markBackendRecovered('reviews list open');
 
         const data = await res.json();
         const reviews = Array.isArray(data.reviews) ? data.reviews : [];
