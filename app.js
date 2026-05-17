@@ -392,7 +392,7 @@ syncSupportMenuForViewport();
 // Environment Configuration
 const IS_LOCAL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname === '';
 const BACKEND_URL = IS_LOCAL ? "http://localhost:8000" : "https://loofinder-api.onrender.com";
-const APP_VERSION = "11.7";
+const APP_VERSION = "11.8";
 
 function getAnalyticsSessionId() {
     const key = 'loofinder-analytics-session-id';
@@ -1648,6 +1648,75 @@ function closeInstallHelpModal() {
     closeModalOverlay(modalEl);
 }
 
+async function readJsonResponseSafe(response) {
+    if (!response) {
+        return null;
+    }
+
+    try {
+        return await response.json();
+    } catch {
+        return null;
+    }
+}
+
+function getApiErrorDetail(payload) {
+    if (!payload || typeof payload !== 'object') {
+        return '';
+    }
+
+    if (typeof payload.detail === 'string') {
+        return payload.detail;
+    }
+
+    if (Array.isArray(payload.detail) && payload.detail.length) {
+        const first = payload.detail[0];
+        if (typeof first === 'string') {
+            return first;
+        }
+        if (first && typeof first.msg === 'string') {
+            return first.msg;
+        }
+    }
+
+    if (typeof payload.message === 'string') {
+        return payload.message;
+    }
+
+    return '';
+}
+
+function getSubmissionErrorMessage(kind, status, detail) {
+    if (status === 429) {
+        return 'You are sending too quickly. Please wait a minute and try again.';
+    }
+
+    if (status === 503) {
+        return 'Service temporarily unavailable. Please try again soon.';
+    }
+
+    if (status === 422) {
+        if (/review_text must be at least 5 characters/i.test(detail || '')) {
+            return 'Please write at least 5 characters, or leave review text empty.';
+        }
+        return kind === 'feedback'
+            ? 'Please check your feedback details and try again.'
+            : 'Please check your review details and try again.';
+    }
+
+    if (status >= 500) {
+        return 'Server error. Please try again shortly.';
+    }
+
+    if (detail) {
+        return detail;
+    }
+
+    return kind === 'feedback'
+        ? 'Unable to send feedback right now.'
+        : 'Unable to submit review right now.';
+}
+
 async function submitFeedback() {
     if (feedbackSubmitting) {
         return;
@@ -1683,14 +1752,26 @@ async function submitFeedback() {
                 }
             })
         });
+        const payload = await readJsonResponseSafe(res);
 
         if (!res.ok) {
-            throw new Error('request failed');
+            const detail = getApiErrorDetail(payload);
+            if (res.status >= 500) {
+                markBackendUnavailable('feedback submit');
+            }
+            trackEvent('feedback_submitted_failed', { status: res.status, detail: detail || null });
+            showToast(getSubmissionErrorMessage('feedback', res.status, detail), 'error');
+            return;
         }
         markBackendRecovered('feedback submit');
 
-        trackEvent('feedback_submitted_success');
-        showToast('Feedback sent. Thank you!', 'success');
+        const wasFiltered = Boolean(payload && payload.content_filtered);
+        trackEvent('feedback_submitted_success', { content_filtered: wasFiltered });
+        if (wasFiltered) {
+            showToast('Feedback sent. Some text was moderated for safety.', 'success');
+        } else {
+            showToast('Feedback sent. Thank you!', 'success');
+        }
         if (messageEl) {
             messageEl.value = '';
         }
@@ -1698,7 +1779,7 @@ async function submitFeedback() {
             emailEl.value = '';
         }
         closeFeedbackModal();
-    } catch (e) {
+    } catch {
         trackEvent('feedback_submitted_failed', { reason: 'network' });
         showToast('Unable to send feedback right now.', 'error');
     } finally {
@@ -1708,25 +1789,43 @@ async function submitFeedback() {
 
 async function submitReview() {
     if (currentRating === 0) return showToast("Pick a star!", "error");
+    const reviewTextEl = document.getElementById('reviewText');
+    const reviewText = (reviewTextEl?.value || '').trim();
+    if (reviewText && reviewText.length < 5) {
+        showToast('Please write at least 5 characters, or leave review text empty.', 'error');
+        return;
+    }
+
     try {
         const res = await fetch(`${BACKEND_URL}/api/reviews`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ facility_id: currentReviewFacilityId.toString(), rating: currentRating, review_text: document.getElementById('reviewText').value })
+            body: JSON.stringify({ facility_id: currentReviewFacilityId.toString(), rating: currentRating, review_text: reviewText })
         });
+        const payload = await readJsonResponseSafe(res);
         if (res.ok) { 
             markBackendRecovered('review submit');
-            trackEvent('review_submitted_success', { facility_id: String(currentReviewFacilityId), rating: currentRating });
-            showToast("Review saved!", "success"); 
+            const wasFiltered = Boolean(payload && payload.content_filtered);
+            trackEvent('review_submitted_success', {
+                facility_id: String(currentReviewFacilityId),
+                rating: currentRating,
+                content_filtered: wasFiltered
+            });
+            showToast(wasFiltered ? 'Review saved. Some text was moderated for safety.' : 'Review saved!', 'success');
             closeModal(); 
             delete ratingCache[currentReviewFacilityId]; 
             delete ratingSummaryCache[currentReviewFacilityId];
             loadDataForCurrentBounds(); 
         } else {
-            trackEvent('review_submitted_failed', { status: res.status });
+            const detail = getApiErrorDetail(payload);
+            if (res.status >= 500) {
+                markBackendUnavailable('review submit');
+            }
+            trackEvent('review_submitted_failed', { status: res.status, detail: detail || null });
+            showToast(getSubmissionErrorMessage('review', res.status, detail), 'error');
         }
-    } catch (e) {
+    } catch {
         trackEvent('review_submitted_failed', { reason: 'network' });
-        showToast("Error connecting.", "error");
+        showToast('Unable to submit review right now.', 'error');
     }
 }
 
