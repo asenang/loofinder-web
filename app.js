@@ -392,7 +392,7 @@ syncSupportMenuForViewport();
 // Environment Configuration
 const IS_LOCAL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname === '';
 const BACKEND_URL = IS_LOCAL ? "http://localhost:8000" : "https://loofinder-api.onrender.com";
-const APP_VERSION = "11.8";
+const APP_VERSION = "11.9";
 
 function getAnalyticsSessionId() {
     const key = 'loofinder-analytics-session-id';
@@ -484,6 +484,9 @@ function markBackendUnavailable(reason) {
 let currentReviewFacilityId = "";
 let currentReviewFacilityName = "";
 let currentRating = 0;
+let currentIssueFacilityId = "";
+let currentIssueFacilityName = "";
+let issueReportSubmitting = false;
 
 // Escape HTML to prevent XSS from map data
 function escapeHTML(str) {
@@ -532,9 +535,32 @@ document.addEventListener('click', (event) => {
         event.preventDefault();
         event.stopPropagation();
         openReviewsList(facilityId, name);
+    } else if (action === 'report-issue') {
+        event.preventDefault();
+        event.stopPropagation();
+        openIssueReportModal(facilityId, name);
     } else if (action === 'directions') {
         trackEvent('directions_clicked', { source: 'popup', facility_id: String(facilityId) });
     }
+});
+
+document.addEventListener('keydown', (event) => {
+    const eventTarget = event.target;
+    if (!(eventTarget instanceof Element)) {
+        return;
+    }
+
+    const target = eventTarget.closest('[data-action]');
+    if (!target || target.tagName === 'A' || target.tagName === 'BUTTON') {
+        return;
+    }
+
+    if (event.key !== 'Enter' && event.key !== ' ') {
+        return;
+    }
+
+    event.preventDefault();
+    target.click();
 });
 
 // Custom Map Pin
@@ -953,6 +979,9 @@ function buildPopupHtml(facilityId, name, lat, lng) {
                 <span class="material-symbols-outlined" style="font-size: 16px;">star</span> Rate
             </button>
         </div>
+        <button class="btn-action-small btn-report" style="width:100%; margin-top: 8px;" data-action="report-issue" data-facility-id="${safeFacilityId}" type="button">
+            <span class="material-symbols-outlined" style="font-size: 16px;">flag</span> Report issue
+        </button>
     `;
 }
 
@@ -1145,7 +1174,18 @@ async function renderMapPoints() {
             e.stopPropagation();
             openModal(facilityId, name);
         });
-        actions.append(dirLink, rateBtn);
+        const reportBtn = document.createElement('button');
+        reportBtn.type = 'button';
+        reportBtn.className = 'btn-action-small btn-report';
+        reportBtn.dataset.action = 'report-issue';
+        reportBtn.dataset.facilityId = String(facilityId);
+        reportBtn.innerHTML = '<span class="material-symbols-outlined" style="font-size: 16px;">flag</span> Report';
+        reportBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            openIssueReportModal(facilityId, name);
+        });
+        actions.append(dirLink, rateBtn, reportBtn);
 
         listItem.append(header, ratingWrap, features, actions);
         listItem.addEventListener('click', () => {
@@ -1479,6 +1519,7 @@ function initModalOverlayInteractions() {
     const modalSelectors = [
         '#reviewModal',
         '#feedbackModal',
+        '#issueReportModal',
         '#installHelpModal',
         '#reviewsListModal',
         '#locationErrorModal'
@@ -1621,6 +1662,123 @@ function closeFeedbackModal() {
     }
 
     closeModalOverlay(modalEl);
+}
+
+function openIssueReportModal(id, name) {
+    currentIssueFacilityId = String(id || '');
+    currentIssueFacilityName = name || 'Public Toilet';
+
+    const modalEl = document.getElementById('issueReportModal');
+    if (!modalEl) {
+        return;
+    }
+
+    const facilityNameEl = document.getElementById('issueReportFacilityName');
+    const issueTypeEl = document.getElementById('issueTypeSelect');
+    const detailsEl = document.getElementById('issueDetailsText');
+    const emailEl = document.getElementById('issueEmail');
+
+    if (facilityNameEl) {
+        facilityNameEl.textContent = currentIssueFacilityName;
+    }
+    if (issueTypeEl) {
+        issueTypeEl.value = 'closed';
+    }
+    if (detailsEl) {
+        detailsEl.value = '';
+    }
+    if (emailEl) {
+        emailEl.value = '';
+    }
+
+    openModalOverlay(modalEl, {
+        initialFocusSelector: '#issueTypeSelect',
+        onClose: closeIssueReportModal
+    });
+
+    trackEvent('issue_report_modal_opened', { facility_id: currentIssueFacilityId });
+}
+
+function closeIssueReportModal() {
+    closeModalOverlay(document.getElementById('issueReportModal'));
+}
+
+async function submitIssueReport() {
+    if (issueReportSubmitting || !currentIssueFacilityId) {
+        return;
+    }
+
+    const issueTypeEl = document.getElementById('issueTypeSelect');
+    const detailsEl = document.getElementById('issueDetailsText');
+    const emailEl = document.getElementById('issueEmail');
+
+    const issueType = (issueTypeEl?.value || 'other').trim();
+    const details = (detailsEl?.value || '').trim();
+    const email = (emailEl?.value || '').trim();
+
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        showToast('Please enter a valid email.', 'error');
+        return;
+    }
+
+    const message = `Facility issue (${issueType}) for ${currentIssueFacilityName} [${currentIssueFacilityId}]. ${details || 'No additional details provided.'}`;
+
+    issueReportSubmitting = true;
+    try {
+        const res = await fetch(`${BACKEND_URL}/api/feedback`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                email,
+                message,
+                context: {
+                    report_type: 'facility_issue',
+                    issue_type: issueType,
+                    facility_id: currentIssueFacilityId,
+                    facility_name: currentIssueFacilityName,
+                    details,
+                    page: window.location.href,
+                    theme: themeMode
+                }
+            })
+        });
+        const payload = await readJsonResponseSafe(res);
+
+        if (!res.ok) {
+            const detail = getApiErrorDetail(payload);
+            if (res.status >= 500) {
+                markBackendUnavailable('issue report submit');
+            }
+            trackEvent('issue_report_submitted_failed', {
+                facility_id: currentIssueFacilityId,
+                issue_type: issueType,
+                status: res.status,
+                detail: detail || null
+            });
+            showToast(getSubmissionErrorMessage('feedback', res.status, detail), 'error');
+            return;
+        }
+
+        markBackendRecovered('issue report submit');
+        const wasFiltered = Boolean(payload && payload.content_filtered);
+        trackEvent('issue_report_submitted_success', {
+            facility_id: currentIssueFacilityId,
+            issue_type: issueType,
+            content_filtered: wasFiltered
+        });
+        showToast(
+            wasFiltered
+                ? 'Issue report sent. Some text was moderated for safety.'
+                : 'Issue report sent. Thank you!',
+            'success'
+        );
+        closeIssueReportModal();
+    } catch {
+        trackEvent('issue_report_submitted_failed', { facility_id: currentIssueFacilityId, issue_type: issueType, reason: 'network' });
+        showToast('Unable to send issue report right now.', 'error');
+    } finally {
+        issueReportSubmitting = false;
+    }
 }
 
 function openInstallHelpModal() {

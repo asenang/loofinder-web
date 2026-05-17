@@ -164,6 +164,7 @@ p { color: #7f8c8d; font-size: 14px; margin-bottom: 16px; }
 .modal-content button:focus-visible,
 .modal-content textarea:focus-visible,
 .modal-content input:focus-visible,
+.modal-content select:focus-visible,
 .star:focus-visible {
     outline: 2px solid #2563eb;
     outline-offset: 2px;
@@ -233,6 +234,7 @@ p { color: #7f8c8d; font-size: 14px; margin-bottom: 16px; }
 /* Blue Directions Button (Forced White Text) */
 a.btn-directions, .btn-directions { background: #007aff; color: #ffffff !important; }
 button.btn-rate, .btn-rate { background: #f1f5f9; color: #4a5568 !important; border: 1px solid #e2e8f0; }
+button.btn-report, .btn-report { background: #fff4e5; color: #92400e !important; border: 1px solid #fcd9a8; }
 
 /* --- Custom Map Pins (Blue) --- */
 .custom-pin { background-color: #007aff; border-radius: 50%; display: flex; justify-content: center; align-items: center; box-shadow: 0 2px 5px rgba(0,0,0,0.3); border: 2px solid white; color: white; }
@@ -349,6 +351,35 @@ button.btn-rate, .btn-rate { background: #f1f5f9; color: #4a5568 !important; bor
 }
 textarea { width: 100%; padding: 12px; border: 1px solid #e2e8f0; border-radius: 8px; margin-bottom: 16px; resize: none; height: 100px; }
 .feedback-form input {
+    width: 100%;
+    padding: 12px;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    margin-bottom: 10px;
+}
+.issue-report-facility {
+    margin-bottom: 12px;
+    font-size: 13px;
+    color: #64748b;
+    font-weight: 600;
+}
+.issue-report-label {
+    display: block;
+    margin-bottom: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #475569;
+}
+.issue-report-select {
+    width: 100%;
+    padding: 12px;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    margin-bottom: 10px;
+    background: #fff;
+    color: #334155;
+}
+.issue-report-form input {
     width: 100%;
     padding: 12px;
     border: 1px solid #e2e8f0;
@@ -573,6 +604,14 @@ textarea { width: 100%; padding: 12px; border: 1px solid #e2e8f0; border-radius:
 .theme-dark .toast, .theme-dark #loader, .theme-dark .modal-content { background: #1e293b; color: #f8fafc; border: none; }
 .theme-dark textarea { background: #0f172a; color: #f8fafc; border-color: #334155; }
 .theme-dark .feedback-form input { background: #0f172a; color: #f8fafc; border-color: #334155; }
+.theme-dark .issue-report-facility { color: #94a3b8; }
+.theme-dark .issue-report-label { color: #cbd5e1; }
+.theme-dark .issue-report-select,
+.theme-dark .issue-report-form input {
+    background: #0f172a;
+    color: #f8fafc;
+    border-color: #334155;
+}
 .theme-dark .install-help-card { background: #0f172a; border-color: #334155; }
 .theme-dark .install-help-card strong { color: #f8fafc; }
 .theme-dark .install-help-card span { color: #cbd5e1; }
@@ -614,6 +653,7 @@ textarea { width: 100%; padding: 12px; border: 1px solid #e2e8f0; border-radius:
 .theme-dark .modal-content button:focus-visible,
 .theme-dark .modal-content textarea:focus-visible,
 .theme-dark .modal-content input:focus-visible,
+.theme-dark .modal-content select:focus-visible,
 .theme-dark .star:focus-visible {
     outline-color: #60a5fa;
 }

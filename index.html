@@ -76,6 +76,30 @@
         </div>
     </div>
 
+    <div id="issueReportModal" class="modal-overlay" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="issueReportModalTitle">
+        <div class="modal-content" tabindex="-1">
+            <div class="modal-title" id="issueReportModalTitle">Report Facility Issue</div>
+            <div id="issueReportFacilityName" class="issue-report-facility">Facility</div>
+            <div class="issue-report-form">
+                <label for="issueTypeSelect" class="issue-report-label">Issue type</label>
+                <select id="issueTypeSelect" class="issue-report-select">
+                    <option value="closed">Closed / unavailable</option>
+                    <option value="incorrect">Incorrect details</option>
+                    <option value="dirty">Dirty / not maintained</option>
+                    <option value="accessibility">Accessibility issue</option>
+                    <option value="other">Other</option>
+                </select>
+                <label for="issueDetailsText" class="issue-report-label">Details (optional)</label>
+                <textarea id="issueDetailsText" placeholder="Add any useful details for this facility..." maxlength="800"></textarea>
+                <input id="issueEmail" type="email" placeholder="Your email (optional)" maxlength="255" />
+            </div>
+            <div class="modal-actions">
+                <button class="btn-cancel" onclick="closeIssueReportModal()">Cancel</button>
+                <button class="btn-primary" style="flex: 2;" onclick="submitIssueReport()">Send report</button>
+            </div>
+        </div>
+    </div>
+
     <div id="installHelpModal" class="modal-overlay" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="installHelpModalTitle">
         <div class="modal-content install-help-modal" tabindex="-1">
             <div class="modal-title" id="installHelpModalTitle">Install LooFinder</div>
@@ -204,6 +228,6 @@
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
-    <script src="app.js?v=11.8"></script>
+    <script src="app.js?v=11.9"></script>
 </body>
 </html>
