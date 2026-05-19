@@ -1,9 +1,13 @@
-// Initialize map with default coordinates (will be updated to user location if available)
-const map = L.map('map', { zoomControl: false }).setView([-37.8300, 144.8500], 14);
+const DEFAULT_CITY_FALLBACK = { city: 'Melbourne', lat: -37.8136, lng: 144.9631, zoom: 13 };
+
+// Initialize map with fallback coordinates (will be updated to user location if available)
+const map = L.map('map', { zoomControl: false }).setView([DEFAULT_CITY_FALLBACK.lat, DEFAULT_CITY_FALLBACK.lng], DEFAULT_CITY_FALLBACK.zoom);
 const savedTheme = localStorage.getItem('loofinder-theme');
 let baseMapLayer = null;
-let userLat = -37.8300; // Default to Melbourne
-let userLng = 144.8500;  // Default to Melbourne
+let userLat = DEFAULT_CITY_FALLBACK.lat;
+let userLng = DEFAULT_CITY_FALLBACK.lng;
+let startupApproximateCity = DEFAULT_CITY_FALLBACK.city;
+let startupApproximateSource = 'fallback';
 let themeUpdateInterval = null;
 
 // Calculate sunrise/sunset times (UTC) for the given date using NOAA-style approximation.
@@ -392,7 +396,7 @@ syncSupportMenuForViewport();
 // Environment Configuration
 const IS_LOCAL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname === '';
 const BACKEND_URL = IS_LOCAL ? "http://localhost:8000" : "https://loofinder-api.onrender.com";
-const APP_VERSION = "11.9";
+const APP_VERSION = "12.0";
 
 function getAnalyticsSessionId() {
     const key = 'loofinder-analytics-session-id';
@@ -1174,18 +1178,7 @@ async function renderMapPoints() {
             e.stopPropagation();
             openModal(facilityId, name);
         });
-        const reportBtn = document.createElement('button');
-        reportBtn.type = 'button';
-        reportBtn.className = 'btn-action-small btn-report';
-        reportBtn.dataset.action = 'report-issue';
-        reportBtn.dataset.facilityId = String(facilityId);
-        reportBtn.innerHTML = '<span class="material-symbols-outlined" style="font-size: 16px;">flag</span> Report';
-        reportBtn.addEventListener('click', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            openIssueReportModal(facilityId, name);
-        });
-        actions.append(dirLink, rateBtn, reportBtn);
+        actions.append(dirLink, rateBtn);
 
         listItem.append(header, ratingWrap, features, actions);
         listItem.addEventListener('click', () => {
@@ -1208,6 +1201,60 @@ function getCachedRatingSummary(facilityId) {
     }
 
     return summary;
+}
+
+async function applyApproximateCityFallback() {
+    if (!shouldAttemptBackendRequest()) {
+        return;
+    }
+
+    let timeoutId = null;
+    let controller = null;
+    if (typeof AbortController !== 'undefined') {
+        controller = new AbortController();
+        timeoutId = setTimeout(() => controller.abort(), 2500);
+    }
+
+    try {
+        const response = await fetch(`${BACKEND_URL}/api/location/approx`, {
+            method: 'GET',
+            signal: controller ? controller.signal : undefined
+        });
+
+        if (!response.ok) {
+            if (response.status >= 500) {
+                markBackendUnavailable('approx location');
+            }
+            return;
+        }
+
+        const payload = await response.json();
+        const lat = Number(payload && payload.latitude);
+        const lng = Number(payload && payload.longitude);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+            return;
+        }
+
+        userLat = lat;
+        userLng = lng;
+        startupApproximateCity = String((payload && payload.city) || DEFAULT_CITY_FALLBACK.city);
+        startupApproximateSource = String((payload && payload.source) || 'fallback');
+        map.setView([lat, lng], DEFAULT_CITY_FALLBACK.zoom);
+        updateTimeBasedTheme();
+        markBackendRecovered('approx location');
+        trackEvent('approx_location_applied', {
+            city: startupApproximateCity,
+            source: startupApproximateSource
+        });
+    } catch (error) {
+        if (!(error && error.name === 'AbortError')) {
+            trackEvent('approx_location_failed', { reason: 'network' });
+        }
+    } finally {
+        if (timeoutId) {
+            clearTimeout(timeoutId);
+        }
+    }
 }
 
 function getRatingHtml(facilityId, summary) {
@@ -1333,17 +1380,6 @@ async function fetchAndDisplayRating(facilityId, htmlId) {
         return;
     }
 
-    if (!updated) {
-        el.innerHTML = `<span style="font-size:13px; color:#e74c3c;"><span class="material-symbols-outlined" style="font-size:14px; vertical-align:middle;">error</span> Rating unavailable</span>`;
-        return;
-    }
-
-    el.innerHTML = getRatingHtml(facilityId, getCachedRatingSummary(facilityId));
-}
-
-// --- GPS Logic ---
-function findNearest() {
-    trackEvent('use_my_location_clicked');
     if (!navigator.geolocation) return;
     navigator.geolocation.getCurrentPosition(pos => {
         const lat = pos.coords.latitude, lng = pos.coords.longitude;
@@ -1413,10 +1449,10 @@ function initializeWithUserLocation() {
             // If user denies location or there's an error, keep default view and load data
             if (error.code === error.PERMISSION_DENIED) {
                 trackEvent('geolocation_failed', { reason: 'permission_denied' });
-                showToast("Location denied. Showing toilets for Melbourne area.", "error");
+                showToast(`Location denied. Showing toilets near ${startupApproximateCity}.`, "error");
             } else {
                 trackEvent('geolocation_failed', { reason: 'unavailable' });
-                showToast("Unable to get your location. Showing default area.", "error");
+                showToast(`Unable to get your location. Showing toilets near ${startupApproximateCity}.`, "error");
             }
             
             // Start periodic theme updates with default coordinates
@@ -2119,8 +2155,9 @@ window.addEventListener('unhandledrejection', (event) => {
     });
 });
 
-map.whenReady(() => {
+map.whenReady(async () => {
     trackEvent('app_loaded', { hostname: window.location.hostname });
+    await applyApproximateCityFallback();
     initializeWithUserLocation();
 });
 
