@@ -1380,28 +1380,7 @@ async function fetchAndDisplayRating(facilityId, htmlId) {
         return;
     }
 
-    if (!navigator.geolocation) return;
-    navigator.geolocation.getCurrentPosition(pos => {
-        const lat = pos.coords.latitude, lng = pos.coords.longitude;
-        map.flyTo([lat, lng], 15);
-        if (userLocationMarker) userLocationMarker.setLatLng([lat, lng]);
-        else {
-            const icon = L.divIcon({ className: 'custom-user-marker', html: '<div class="user-location-dot"></div>', iconSize: [14, 14], iconAnchor: [7, 7] });
-            userLocationMarker = L.marker([lat, lng], { icon }).addTo(map);
-        }
-        setTimeout(loadDataForCurrentBounds, 1000);
-    }, (error) => {
-        // If user denies location, show a toast and load data for current view
-        if (error.code === error.PERMISSION_DENIED) {
-            trackEvent('geolocation_failed', { reason: 'permission_denied' });
-            showToast("Location denied. Showing toilets for default area.", "error");
-        } else {
-            trackEvent('geolocation_failed', { reason: 'unavailable' });
-            showToast("Unable to get your location.", "error");
-        }
-        // Load data for the current (default) view
-        setTimeout(loadDataForCurrentBounds, 500);
-    });
+    el.innerHTML = `<span style="font-size:13px; color:#e74c3c;"><span class="material-symbols-outlined" style="font-size:14px; vertical-align:middle;">error</span> Rating unavailable</span>`;
 }
 
 // Initialize map with user location on page load
