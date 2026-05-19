@@ -202,6 +202,28 @@ p { color: #7f8c8d; font-size: 14px; margin-bottom: 16px; }
 }
 .list-item:hover { background: #f8fafc; transform: translateY(-1px); }
 
+.list-item.is-selected {
+    background: #eef6ff;
+    border: 1px solid #93c5fd;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+    animation: selectedPulse 0.55s ease-out;
+}
+
+@keyframes selectedPulse {
+    0% {
+        box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.35);
+    }
+    100% {
+        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .list-item.is-selected {
+        animation: none;
+    }
+}
+
 .list-item-header { display: flex; justify-content: space-between; align-items: flex-start; }
 .list-item-title { font-weight: 700; color: #2c3e50; font-size: 15px; }
 .list-item-rating { font-size: 12px; line-height: 1.2; margin-top: -5px; margin-bottom: -2px; }
@@ -216,6 +238,30 @@ p { color: #7f8c8d; font-size: 14px; margin-bottom: 16px; }
 .empty-actionable { color: #007aff !important; font-weight: 600 !important; cursor: pointer; }
 .popup-title { font-weight:700; font-size:15px; color:#2c3e50; }
 .popup-rating { color:#7f8c8d; margin:8px 0 12px 0; }
+.popup-primary-actions { display:flex; gap:8px; }
+.popup-primary-actions .btn-action-small { flex: 1 1 0; min-width: 0; }
+.popup-report-row { margin-top: 8px; display: flex; justify-content: center; }
+.btn-report-link {
+    border: none;
+    background: transparent;
+    color: #7f8c8d;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 2px 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    gap: 6px;
+    cursor: pointer;
+    transition: color 0.2s ease;
+}
+.btn-report-link .material-symbols-outlined {
+    font-size: 14px;
+}
+.btn-report-link:hover {
+    color: #f59e0b;
+}
 
 /* Blue Distance Badge */
 .distance-badge { font-size: 11px; font-weight: 700; color: #007aff; background: #eef2ff; padding: 4px 8px; border-radius: 20px; white-space: nowrap; }
@@ -225,7 +271,7 @@ p { color: #7f8c8d; font-size: 14px; margin-bottom: 16px; }
 .list-item-actions { display: flex; gap: 8px; margin-top: 0; }
 
 .btn-action-small {
-    flex: 1; padding: 8px; border-radius: 8px; font-size: 13px; font-weight: 600;
+    flex: 1; min-height: 40px; padding: 10px 12px; border-radius: 10px; font-size: 13px; font-weight: 700;
     text-align: center; text-decoration: none; border: none; cursor: pointer; transition: opacity 0.2s;
     display: flex; align-items: center; justify-content: center; gap: 4px;
 }
@@ -600,6 +646,21 @@ textarea { width: 100%; padding: 12px; border: 1px solid #e2e8f0; border-radius:
 .theme-dark .sidebar-top { border-bottom-color: #334155; }
 .theme-dark .list-item { border-bottom-color: #1e293b; }
 .theme-dark .list-item:hover { background: #1e293b; }
+.theme-dark .list-item.is-selected {
+    background: #1e3a5f;
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3);
+}
+.theme-dark .list-item.is-selected .distance-badge {
+    background: rgba(59, 130, 246, 0.22);
+    color: #bfdbfe;
+}
+.theme-dark .btn-report-link {
+    color: #64748b;
+}
+.theme-dark .btn-report-link:hover {
+    color: #fbbf24;
+}
 .theme-dark .btn-rate, .theme-dark .btn-cancel { background: #334155 !important; color: #f8fafc !important; border-color: #475569; }
 .theme-dark .toast, .theme-dark #loader, .theme-dark .modal-content { background: #1e293b; color: #f8fafc; border: none; }
 .theme-dark textarea { background: #0f172a; color: #f8fafc; border-color: #334155; }

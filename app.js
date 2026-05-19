@@ -396,7 +396,7 @@ syncSupportMenuForViewport();
 // Environment Configuration
 const IS_LOCAL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname === '';
 const BACKEND_URL = IS_LOCAL ? "http://localhost:8000" : "https://loofinder-api.onrender.com";
-const APP_VERSION = "12.1";
+const APP_VERSION = "13.1";
 
 function getAnalyticsSessionId() {
     const key = 'loofinder-analytics-session-id';
@@ -454,6 +454,9 @@ let feedbackSubmitting = false;
 const RATING_SUMMARY_TTL_MS = 60 * 1000;
 const BACKEND_RECOVERY_RETRY_MS = 30 * 1000;
 const ratingSummaryInFlight = new Set();
+let facilityListItemMap = new Map();
+let selectedFacilityListItemEl = null;
+let selectedFacilityListItemTimer = null;
 
 const LOAD_DATA_TRIGGER = Object.freeze({
     STARTUP_NOT_SUPPORTED: 'startup_not_supported',
@@ -984,18 +987,51 @@ function buildPopupHtml(facilityId, name, lat, lng) {
     return `
         <div class="popup-title">${safeName}</div>
         <div id="${safeRatingElId}" class="popup-rating">${getRatingHtml(facilityId, getCachedRatingSummary(facilityId))}</div>
-        <div style="display: flex; gap: 8px;">
-            <a href="${mapsUrl}" target="_blank" rel="noopener noreferrer" class="btn-action-small btn-directions" style="flex:1;" data-action="directions" data-facility-id="${safeFacilityId}">
+        <div class="popup-primary-actions">
+            <a href="${mapsUrl}" target="_blank" rel="noopener noreferrer" class="btn-action-small btn-directions" data-action="directions" data-facility-id="${safeFacilityId}">
                 <span class="material-symbols-outlined" style="font-size: 16px;">directions</span> Directions
             </a>
-            <button class="btn-action-small btn-rate" style="flex:1;" data-action="rate" data-facility-id="${safeFacilityId}" type="button">
+            <button class="btn-action-small btn-rate" data-action="rate" data-facility-id="${safeFacilityId}" type="button">
                 <span class="material-symbols-outlined" style="font-size: 16px;">star</span> Rate
             </button>
         </div>
-        <button class="btn-action-small btn-report" style="width:100%; margin-top: 8px;" data-action="report-issue" data-facility-id="${safeFacilityId}" type="button">
-            <span class="material-symbols-outlined" style="font-size: 16px;">flag</span> Report issue
-        </button>
+        <div class="popup-report-row">
+            <button class="btn-report-link" data-action="report-issue" data-facility-id="${safeFacilityId}" type="button">
+                <span class="material-symbols-outlined">flag</span> Report issue
+            </button>
+        </div>
     `;
+}
+
+function highlightFacilityListItem(facilityId, options = {}) {
+    const { scrollIntoView = true } = options;
+    const key = String(facilityId || '');
+    const listItem = facilityListItemMap.get(key);
+    if (!listItem) {
+        return;
+    }
+
+    if (selectedFacilityListItemEl && selectedFacilityListItemEl !== listItem) {
+        selectedFacilityListItemEl.classList.remove('is-selected');
+    }
+
+    selectedFacilityListItemEl = listItem;
+    listItem.classList.add('is-selected');
+
+    if (scrollIntoView) {
+        listItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
+    if (selectedFacilityListItemTimer) {
+        clearTimeout(selectedFacilityListItemTimer);
+    }
+
+    selectedFacilityListItemTimer = setTimeout(() => {
+        if (selectedFacilityListItemEl === listItem) {
+            listItem.classList.remove('is-selected');
+            selectedFacilityListItemEl = null;
+        }
+    }, 3000);
 }
 
 // --- Data Fetching (Comprehensive Detection) ---
@@ -1065,6 +1101,12 @@ async function renderMapPoints() {
     if (currentMapLayer) map.removeLayer(currentMapLayer);
     const listContainer = document.getElementById('facility-list');
     listContainer.innerHTML = '';
+    facilityListItemMap = new Map();
+    selectedFacilityListItemEl = null;
+    if (selectedFacilityListItemTimer) {
+        clearTimeout(selectedFacilityListItemTimer);
+        selectedFacilityListItemTimer = null;
+    }
     
     const referencePoint = userLocationMarker ? userLocationMarker.getLatLng() : map.getCenter();
 
@@ -1120,6 +1162,7 @@ async function renderMapPoints() {
         marker.bindPopup(buildPopupHtml(facilityId, f.properties.Name, lat, lng));
         marker.on('popupopen', () => {
             fetchAndDisplayRating(facilityId, "rt-" + facilityId);
+            highlightFacilityListItem(facilityId, { scrollIntoView: true });
             collapseSidebar();
         });
         f.layerRef = marker;
@@ -1140,6 +1183,7 @@ async function renderMapPoints() {
 
         const listItem = document.createElement('div');
         listItem.className = 'list-item';
+        listItem.dataset.facilityId = String(facilityId);
 
         // Build via DOM APIs so names are never interpolated into JS/HTML strings
         const header = document.createElement('div');
@@ -1195,7 +1239,9 @@ async function renderMapPoints() {
         actions.append(dirLink, rateBtn);
 
         listItem.append(header, ratingWrap, features, actions);
+        facilityListItemMap.set(String(facilityId), listItem);
         listItem.addEventListener('click', () => {
+            highlightFacilityListItem(facilityId, { scrollIntoView: false });
             map.flyTo([lat, lng], 16, { animate: true, duration: 1 });
             if (feature.layerRef) feature.layerRef.openPopup();
         });
