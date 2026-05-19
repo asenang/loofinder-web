@@ -396,7 +396,7 @@ syncSupportMenuForViewport();
 // Environment Configuration
 const IS_LOCAL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname === '';
 const BACKEND_URL = IS_LOCAL ? "http://localhost:8000" : "https://loofinder-api.onrender.com";
-const APP_VERSION = "12.0";
+const APP_VERSION = "12.1";
 
 function getAnalyticsSessionId() {
     const key = 'loofinder-analytics-session-id';
@@ -454,6 +454,15 @@ let feedbackSubmitting = false;
 const RATING_SUMMARY_TTL_MS = 60 * 1000;
 const BACKEND_RECOVERY_RETRY_MS = 30 * 1000;
 const ratingSummaryInFlight = new Set();
+
+const LOAD_DATA_TRIGGER = Object.freeze({
+    STARTUP_NOT_SUPPORTED: 'startup_not_supported',
+    STARTUP_GEOLOCATION_SUCCESS: 'startup_geolocation_success',
+    STARTUP_GEOLOCATION_FALLBACK: 'startup_geolocation_fallback',
+    SEARCH_THIS_AREA: 'search_this_area',
+    REVIEW_SUBMITTED: 'review_submitted'
+});
+const ALLOWED_LOAD_DATA_TRIGGERS = new Set(Object.values(LOAD_DATA_TRIGGER));
 
 function shouldAttemptBackendRequest() {
     return !backendUnavailable || Date.now() >= backendRetryAfterMs;
@@ -990,7 +999,12 @@ function buildPopupHtml(facilityId, name, lat, lng) {
 }
 
 // --- Data Fetching (Comprehensive Detection) ---
-async function loadDataForCurrentBounds() {
+async function loadDataForCurrentBounds(trigger) {
+    if (!ALLOWED_LOAD_DATA_TRIGGERS.has(trigger)) {
+        console.warn('Blocked facility refetch from unknown trigger.', trigger);
+        return;
+    }
+
     document.getElementById('loader').style.display = 'flex';
     document.getElementById('btn-search-area').style.display = 'none';
 
@@ -1388,7 +1402,7 @@ function initializeWithUserLocation() {
     if (!navigator.geolocation) {
         trackEvent('geolocation_failed', { reason: 'not_supported' });
         showToast("Geolocation not supported by your browser.", "error");
-        setTimeout(loadDataForCurrentBounds, 500);
+        setTimeout(() => loadDataForCurrentBounds(LOAD_DATA_TRIGGER.STARTUP_NOT_SUPPORTED), 500);
         return;
     }
     
@@ -1422,7 +1436,7 @@ function initializeWithUserLocation() {
             startPeriodicThemeUpdates();
             
             // Load data for user's area
-            setTimeout(loadDataForCurrentBounds, 1000);
+            setTimeout(() => loadDataForCurrentBounds(LOAD_DATA_TRIGGER.STARTUP_GEOLOCATION_SUCCESS), 1000);
         },
         (error) => {
             // If user denies location or there's an error, keep default view and load data
@@ -1438,7 +1452,7 @@ function initializeWithUserLocation() {
             startPeriodicThemeUpdates();
             
             // Load data for the default (Melbourne) view
-            setTimeout(loadDataForCurrentBounds, 500);
+            setTimeout(() => loadDataForCurrentBounds(LOAD_DATA_TRIGGER.STARTUP_GEOLOCATION_FALLBACK), 500);
         }
     );
 }
@@ -1455,7 +1469,10 @@ function startPeriodicThemeUpdates() {
 }
 
 map.on('moveend', () => { document.getElementById('btn-search-area').style.display = 'block'; });
-function triggerSearchArea() { trackEvent('search_this_area_clicked'); loadDataForCurrentBounds(); }
+function triggerSearchArea() {
+    trackEvent('search_this_area_clicked');
+    loadDataForCurrentBounds(LOAD_DATA_TRIGGER.SEARCH_THIS_AREA);
+}
 
 // ... (rest of the code remains the same)
 // --- Modals & Filters ---
@@ -1987,7 +2004,7 @@ async function submitReview() {
             closeModal(); 
             delete ratingCache[currentReviewFacilityId]; 
             delete ratingSummaryCache[currentReviewFacilityId];
-            loadDataForCurrentBounds(); 
+            loadDataForCurrentBounds(LOAD_DATA_TRIGGER.REVIEW_SUBMITTED);
         } else {
             const detail = getApiErrorDetail(payload);
             if (res.status >= 500) {

@@ -263,10 +263,41 @@
             font-size: 12px;
         }
 
+        .triage-controls {
+            display: grid;
+            grid-template-columns: repeat(5, minmax(120px, 1fr)) auto;
+            gap: 10px;
+            align-items: end;
+            margin-bottom: 10px;
+        }
+
+        .triage-meta {
+            color: var(--muted);
+            font-size: 12px;
+            margin-bottom: 10px;
+        }
+
+        .btn-secondary {
+            border: 1px solid var(--line);
+            background: #fff;
+            color: var(--text);
+            border-radius: 10px;
+            padding: 10px 14px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .btn-secondary:hover {
+            border-color: #cbd5e1;
+            background: #f8fafc;
+        }
+
         @media (max-width: 900px) {
             .controls { grid-template-columns: 1fr 1fr; }
             .controls .btn { grid-column: span 2; }
             .metrics { grid-template-columns: repeat(2, minmax(140px, 1fr)); }
+            .triage-controls { grid-template-columns: repeat(2, minmax(140px, 1fr)); }
         }
 
         @media (max-width: 520px) {
@@ -332,6 +363,40 @@
 
         <div class="panel">
             <label style="margin-bottom:8px;">Issue Report Triage Activity</label>
+            <div class="triage-controls">
+                <div>
+                    <label for="triage-type">Issue Type</label>
+                    <select id="triage-type">
+                        <option value="all" selected>All</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="triage-result">Result</label>
+                    <select id="triage-result">
+                        <option value="all" selected>All</option>
+                        <option value="success">Success</option>
+                        <option value="failed">Failed</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="triage-moderated">Moderated</label>
+                    <select id="triage-moderated">
+                        <option value="all" selected>All</option>
+                        <option value="yes">Yes</option>
+                        <option value="no">No</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="triage-created-after">Created After</label>
+                    <input id="triage-created-after" type="date">
+                </div>
+                <div>
+                    <label for="triage-search">Facility/Detail Contains</label>
+                    <input id="triage-search" type="search" placeholder="facility id, status, reason">
+                </div>
+                <button id="triage-reset" class="btn-secondary" type="button">Reset filters</button>
+            </div>
+            <div id="triage-meta" class="triage-meta">No triage data loaded yet.</div>
             <div class="table-wrap">
                 <table>
                     <thead>
@@ -385,6 +450,13 @@
         const statusEl = document.getElementById('status');
         const dailyRowsEl = document.getElementById('daily-rows');
         const issueReportRowsEl = document.getElementById('issue-report-rows');
+        const triageMetaEl = document.getElementById('triage-meta');
+        const triageTypeEl = document.getElementById('triage-type');
+        const triageResultEl = document.getElementById('triage-result');
+        const triageModeratedEl = document.getElementById('triage-moderated');
+        const triageCreatedAfterEl = document.getElementById('triage-created-after');
+        const triageSearchEl = document.getElementById('triage-search');
+        const triageResetEl = document.getElementById('triage-reset');
 
         const metricEls = {
             days: document.getElementById('m-days'),
@@ -401,6 +473,7 @@
             issueRate: document.getElementById('m-issue-rate')
         };
         const issueTypeListEl = document.getElementById('issue-type-list');
+        let triageItems = [];
 
         tokenInput.value = sessionStorage.getItem(TOKEN_KEY) || '';
 
@@ -480,8 +553,102 @@
             }
         }
 
-        function renderIssueReportRows(issueData) {
-            const items = Array.isArray(issueData.items) ? issueData.items : [];
+        function updateTriageMeta(filteredCount, totalCount) {
+            if (totalCount === 0) {
+                triageMetaEl.textContent = 'No issue reports in this date range.';
+                return;
+            }
+
+            if (filteredCount === totalCount) {
+                triageMetaEl.textContent = `Showing all ${numberFormat(totalCount)} triage item(s).`;
+                return;
+            }
+
+            triageMetaEl.textContent = `Showing ${numberFormat(filteredCount)} of ${numberFormat(totalCount)} triage item(s).`;
+        }
+
+        function resetTriageFilters() {
+            triageTypeEl.value = 'all';
+            triageResultEl.value = 'all';
+            triageModeratedEl.value = 'all';
+            triageCreatedAfterEl.value = '';
+            triageSearchEl.value = '';
+        }
+
+        function populateTriageTypeOptions(items) {
+            const current = triageTypeEl.value || 'all';
+            const options = new Set(['all']);
+
+            for (const item of items) {
+                if (item && item.issue_type) {
+                    options.add(String(item.issue_type));
+                }
+            }
+
+            triageTypeEl.innerHTML = '';
+            for (const issueType of Array.from(options).sort((a, b) => a.localeCompare(b))) {
+                const option = document.createElement('option');
+                option.value = issueType;
+                option.textContent = issueType === 'all' ? 'All' : issueType;
+                triageTypeEl.appendChild(option);
+            }
+
+            triageTypeEl.value = options.has(current) ? current : 'all';
+        }
+
+        function getFilteredTriageItems(items) {
+            const selectedType = triageTypeEl.value;
+            const selectedResult = triageResultEl.value;
+            const selectedModerated = triageModeratedEl.value;
+            const createdAfter = triageCreatedAfterEl.value ? new Date(`${triageCreatedAfterEl.value}T00:00:00`) : null;
+            const query = (triageSearchEl.value || '').trim().toLowerCase();
+
+            return items.filter((item) => {
+                const issueType = String(item.issue_type || 'unknown');
+                const result = item.result === 'success' ? 'success' : 'failed';
+                const moderated = item.content_filtered ? 'yes' : 'no';
+
+                if (selectedType !== 'all' && issueType !== selectedType) {
+                    return false;
+                }
+                if (selectedResult !== 'all' && result !== selectedResult) {
+                    return false;
+                }
+                if (selectedModerated !== 'all' && moderated !== selectedModerated) {
+                    return false;
+                }
+
+                if (createdAfter) {
+                    const createdAt = item.created_at ? new Date(item.created_at) : null;
+                    if (!createdAt || Number.isNaN(createdAt.getTime()) || createdAt < createdAfter) {
+                        return false;
+                    }
+                }
+
+                if (query) {
+                    const haystack = [
+                        item.facility_id,
+                        item.issue_type,
+                        item.status,
+                        item.reason,
+                        item.result
+                    ].map((value) => String(value || '').toLowerCase()).join(' ');
+                    if (!haystack.includes(query)) {
+                        return false;
+                    }
+                }
+
+                return true;
+            });
+        }
+
+        function applyTriageFiltersAndRender() {
+            const filteredItems = getFilteredTriageItems(triageItems);
+            renderIssueReportRows(filteredItems);
+            updateTriageMeta(filteredItems.length, triageItems.length);
+        }
+
+        function renderIssueReportRows(items) {
             issueReportRowsEl.innerHTML = '';
 
             if (items.length === 0) {
@@ -640,10 +807,16 @@
                 let issueCount = 0;
                 if (issueResponse.ok) {
                     const issueData = await issueResponse.json();
-                    renderIssueReportRows(issueData);
-                    issueCount = Array.isArray(issueData.items) ? issueData.items.length : 0;
+                    triageItems = Array.isArray(issueData.items) ? issueData.items : [];
+                    populateTriageTypeOptions(triageItems);
+                    applyTriageFiltersAndRender();
+                    issueCount = triageItems.length;
                 } else {
+                    triageItems = [];
+                    resetTriageFilters();
+                    populateTriageTypeOptions([]);
                     issueReportRowsEl.innerHTML = '<tr><td colspan="6" style="color:#64748b;">Issue triage endpoint unavailable for this backend version.</td></tr>';
+                    triageMetaEl.textContent = 'Issue triage endpoint unavailable for this backend version.';
                 }
 
                 setStatus(`Loaded ${numberFormat((summaryData.daily || []).length)} day(s) and ${numberFormat(issueCount)} triage item(s).`);
@@ -653,6 +826,16 @@
         }
 
         loadBtn.addEventListener('click', loadSummary);
+        triageTypeEl.addEventListener('change', applyTriageFiltersAndRender);
+        triageResultEl.addEventListener('change', applyTriageFiltersAndRender);
+        triageModeratedEl.addEventListener('change', applyTriageFiltersAndRender);
+        triageCreatedAfterEl.addEventListener('change', applyTriageFiltersAndRender);
+        triageSearchEl.addEventListener('input', applyTriageFiltersAndRender);
+        triageResetEl.addEventListener('click', () => {
+            resetTriageFilters();
+            applyTriageFiltersAndRender();
+        });
+
         tokenInput.addEventListener('keydown', (event) => {
             if (event.key === 'Enter') {
                 event.preventDefault();
