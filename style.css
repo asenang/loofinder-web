@@ -373,6 +373,9 @@ button.btn-report, .btn-report { background: #fff4e5; color: #92400e !important;
 
 .loofinder-compass-control {
     display: none;
+    background: transparent;
+    border: none;
+    box-shadow: none;
 }
 
 .loofinder-compass-btn {
@@ -688,10 +691,17 @@ textarea { width: 100%; padding: 12px; border: 1px solid #e2e8f0; border-radius:
     }
     .theme-toggle .material-symbols-outlined { font-size: 18px; }
 
-    .loofinder-compass-control {
+    .leaflet-bottom.leaflet-right .loofinder-compass-control {
         display: block;
-        margin-top: 68px;
+        margin-bottom: 172px;
         margin-right: 12px;
+    }
+
+    @supports (padding: env(safe-area-inset-top)) {
+        .leaflet-bottom.leaflet-right .loofinder-compass-control {
+            margin-bottom: calc(172px + env(safe-area-inset-bottom));
+            margin-right: calc(12px + env(safe-area-inset-right));
+        }
     }
 
     .modal-overlay { align-items: flex-end; }

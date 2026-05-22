@@ -396,9 +396,9 @@ function addCompassControl() {
     }
 
     const CompassControl = L.Control.extend({
-        options: { position: 'topright' },
+        options: { position: 'bottomright' },
         onAdd() {
-            const container = L.DomUtil.create('div', 'leaflet-bar loofinder-compass-control');
+            const container = L.DomUtil.create('div', 'loofinder-compass-control');
             const button = L.DomUtil.create('button', 'loofinder-compass-btn', container);
             button.type = 'button';
             button.setAttribute('aria-label', 'Toggle compass heading');
