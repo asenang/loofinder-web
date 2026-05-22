@@ -285,7 +285,38 @@ button.btn-report, .btn-report { background: #fff4e5; color: #92400e !important;
 /* --- Custom Map Pins (Blue) --- */
 .custom-pin { background-color: #007aff; border-radius: 50%; display: flex; justify-content: center; align-items: center; box-shadow: 0 2px 5px rgba(0,0,0,0.3); border: 2px solid white; color: white; }
 .custom-user-marker { background: transparent; border: none; }
-.user-location-dot { width: 14px; height: 14px; background-color: #007aff; border: 2px solid white; border-radius: 50%; box-shadow: 0 0 5px rgba(0,0,0,0.4); }
+.user-location-indicator {
+    position: relative;
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.user-location-dot {
+    width: 14px;
+    height: 14px;
+    background-color: #007aff;
+    border: 2px solid white;
+    border-radius: 50%;
+    box-shadow: 0 0 5px rgba(0,0,0,0.4);
+    z-index: 2;
+}
+.user-location-heading {
+    position: absolute;
+    left: 50%;
+    top: 1px;
+    width: 0;
+    height: 0;
+    border-left: 6px solid transparent;
+    border-right: 6px solid transparent;
+    border-bottom: 12px solid rgba(0, 122, 255, 0.92);
+    transform: translateX(-50%) rotate(var(--user-heading, 0deg));
+    transform-origin: 50% 13px;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+.user-location-indicator.has-heading .user-location-heading { opacity: 1; }
 
 /* --- Marker Cluster (brand blue, replaces default green/yellow/orange) --- */
 .marker-cluster-small,
@@ -339,6 +370,37 @@ button.btn-report, .btn-report { background: #fff4e5; color: #92400e !important;
 }
 .theme-toggle .material-symbols-outlined { font-size: 18px; }
 .theme-toggle:hover { transform: translateY(-1px); }
+
+.loofinder-compass-control {
+    display: none;
+}
+
+.loofinder-compass-btn {
+    width: 40px;
+    height: 40px;
+    border: 1px solid #e2e8f0;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.95);
+    color: #1e293b;
+    box-shadow: 0 6px 16px rgba(0,0,0,0.12);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+.loofinder-compass-btn .material-symbols-outlined {
+    font-size: 20px;
+    transition: transform 0.2s ease;
+}
+.loofinder-compass-btn.is-active {
+    color: #007aff;
+    border-color: #93c5fd;
+    background: #eff6ff;
+}
+.loofinder-compass-btn.is-unavailable {
+    opacity: 0.55;
+}
 
 /* PWA / safe-area: when launched as a standalone app on iOS/Android,
  * push the floating chrome away from the notch and home indicator so it
@@ -626,6 +688,12 @@ textarea { width: 100%; padding: 12px; border: 1px solid #e2e8f0; border-radius:
     }
     .theme-toggle .material-symbols-outlined { font-size: 18px; }
 
+    .loofinder-compass-control {
+        display: block;
+        margin-top: 68px;
+        margin-right: 12px;
+    }
+
     .modal-overlay { align-items: flex-end; }
     .modal-content { 
         width: 100%; max-width: 100%; border-radius: 24px 24px 0 0; padding: 24px 24px 40px;
@@ -660,6 +728,19 @@ textarea { width: 100%; padding: 12px; border: 1px solid #e2e8f0; border-radius:
 }
 .theme-dark .btn-report-link:hover {
     color: #fbbf24;
+}
+.theme-dark .user-location-heading {
+    border-bottom-color: rgba(59, 130, 246, 0.95);
+}
+.theme-dark .loofinder-compass-btn {
+    background: rgba(30, 41, 59, 0.95);
+    color: #f8fafc;
+    border-color: #475569;
+}
+.theme-dark .loofinder-compass-btn.is-active {
+    background: rgba(30, 58, 95, 0.96);
+    color: #93c5fd;
+    border-color: #3b82f6;
 }
 .theme-dark .btn-rate, .theme-dark .btn-cancel { background: #334155 !important; color: #f8fafc !important; border-color: #475569; }
 .theme-dark .toast, .theme-dark #loader, .theme-dark .modal-content { background: #1e293b; color: #f8fafc; border: none; }

@@ -233,6 +233,193 @@ function isMobileViewport() {
     return window.matchMedia('(max-width: 768px)').matches;
 }
 
+function isCompassSupported() {
+    return typeof window.DeviceOrientationEvent !== 'undefined';
+}
+
+function normalizeCompassHeading(value) {
+    if (!Number.isFinite(value)) {
+        return null;
+    }
+    return ((value % 360) + 360) % 360;
+}
+
+function extractCompassHeading(event) {
+    if (!event) {
+        return null;
+    }
+    if (Number.isFinite(event.webkitCompassHeading)) {
+        return normalizeCompassHeading(event.webkitCompassHeading);
+    }
+    if (Number.isFinite(event.alpha)) {
+        return normalizeCompassHeading(360 - event.alpha);
+    }
+    return null;
+}
+
+function buildUserLocationIcon(heading = null) {
+    const normalizedHeading = normalizeCompassHeading(heading);
+    const hasHeading = Number.isFinite(normalizedHeading);
+    const headingStyle = hasHeading ? `--user-heading:${normalizedHeading.toFixed(1)}deg;` : '';
+    const headingClass = hasHeading ? ' has-heading' : '';
+
+    return L.divIcon({
+        className: 'custom-user-marker',
+        html: `<div class="user-location-indicator${headingClass}" style="${headingStyle}"><div class="user-location-heading"></div><div class="user-location-dot"></div></div>`,
+        iconSize: [28, 28],
+        iconAnchor: [14, 14]
+    });
+}
+
+function upsertUserLocationMarker(lat, lng) {
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+        return;
+    }
+    const icon = buildUserLocationIcon(compassEnabled ? compassHeadingDegrees : null);
+    if (userLocationMarker) {
+        userLocationMarker.setLatLng([lat, lng]);
+        userLocationMarker.setIcon(icon);
+        return;
+    }
+    userLocationMarker = L.marker([lat, lng], { icon }).addTo(map);
+}
+
+function updateCompassButtonState() {
+    if (!compassButtonEl) {
+        return;
+    }
+    compassButtonEl.classList.toggle('is-active', compassEnabled);
+    compassButtonEl.classList.toggle('is-unavailable', !isCompassSupported());
+    compassButtonEl.setAttribute('aria-pressed', compassEnabled ? 'true' : 'false');
+    compassButtonEl.setAttribute('title',
+        !isCompassSupported()
+            ? 'Compass not supported on this device'
+            : (compassEnabled ? 'Disable compass heading' : 'Enable compass heading')
+    );
+
+    const iconEl = compassButtonEl.querySelector('.material-symbols-outlined');
+    if (!iconEl) {
+        return;
+    }
+    if (compassEnabled && Number.isFinite(compassHeadingDegrees)) {
+        iconEl.style.transform = `rotate(${compassHeadingDegrees.toFixed(1)}deg)`;
+    } else {
+        iconEl.style.transform = '';
+    }
+}
+
+function handleCompassOrientation(event) {
+    const heading = extractCompassHeading(event);
+    if (!Number.isFinite(heading)) {
+        return;
+    }
+    compassHeadingDegrees = heading;
+    if (userLocationMarker && compassEnabled) {
+        userLocationMarker.setIcon(buildUserLocationIcon(compassHeadingDegrees));
+    }
+    updateCompassButtonState();
+}
+
+function startCompassOrientationListener() {
+    if (compassListenerAttached) {
+        return;
+    }
+    window.addEventListener('deviceorientationabsolute', handleCompassOrientation, true);
+    window.addEventListener('deviceorientation', handleCompassOrientation, true);
+    compassListenerAttached = true;
+}
+
+function stopCompassOrientationListener() {
+    if (!compassListenerAttached) {
+        return;
+    }
+    window.removeEventListener('deviceorientationabsolute', handleCompassOrientation, true);
+    window.removeEventListener('deviceorientation', handleCompassOrientation, true);
+    compassListenerAttached = false;
+}
+
+async function requestCompassPermissionIfNeeded() {
+    if (!isCompassSupported()) {
+        showToast('Compass is not supported on this device.', 'error');
+        return false;
+    }
+
+    const deviceOrientation = window.DeviceOrientationEvent;
+    if (typeof deviceOrientation.requestPermission === 'function') {
+        try {
+            const permission = await deviceOrientation.requestPermission();
+            if (permission !== 'granted') {
+                showToast('Compass permission was denied.', 'error');
+                return false;
+            }
+        } catch {
+            showToast('Compass permission was denied.', 'error');
+            return false;
+        }
+    }
+
+    return true;
+}
+
+async function toggleCompassMode() {
+    if (compassEnabled) {
+        compassEnabled = false;
+        compassHeadingDegrees = null;
+        stopCompassOrientationListener();
+        if (userLocationMarker) {
+            userLocationMarker.setIcon(buildUserLocationIcon());
+        }
+        updateCompassButtonState();
+        trackEvent('compass_toggled', { enabled: false });
+        return;
+    }
+
+    if (!userLocationMarker) {
+        showToast('Enable location to use compass heading.', 'error');
+        return;
+    }
+
+    const granted = await requestCompassPermissionIfNeeded();
+    if (!granted) {
+        return;
+    }
+
+    compassEnabled = true;
+    startCompassOrientationListener();
+    updateCompassButtonState();
+    trackEvent('compass_toggled', { enabled: true });
+}
+
+function addCompassControl() {
+    if (compassControl || !L || !L.Control) {
+        return;
+    }
+
+    const CompassControl = L.Control.extend({
+        options: { position: 'topright' },
+        onAdd() {
+            const container = L.DomUtil.create('div', 'leaflet-bar loofinder-compass-control');
+            const button = L.DomUtil.create('button', 'loofinder-compass-btn', container);
+            button.type = 'button';
+            button.setAttribute('aria-label', 'Toggle compass heading');
+            button.innerHTML = '<span class="material-symbols-outlined" aria-hidden="true">explore</span>';
+
+            L.DomEvent.disableClickPropagation(container);
+            L.DomEvent.on(button, 'click', (event) => {
+                L.DomEvent.stop(event);
+                toggleCompassMode();
+            });
+
+            compassButtonEl = button;
+            updateCompassButtonState();
+            return container;
+        }
+    });
+
+    compassControl = new CompassControl();
+    map.addControl(compassControl);
+}
+
 function setSupportDesktopMenuOpen(isOpen) {
     if (!supportDesktopMenuEl || !supportDesktopToggleEl || !supportDesktopDropdownEl) {
         return;
@@ -396,7 +583,7 @@ syncSupportMenuForViewport();
 // Environment Configuration
 const IS_LOCAL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname === '';
 const BACKEND_URL = IS_LOCAL ? "http://localhost:8000" : "https://loofinder-api.onrender.com";
-const APP_VERSION = "13.1";
+const APP_VERSION = "13.2";
 
 function getAnalyticsSessionId() {
     const key = 'loofinder-analytics-session-id';
@@ -443,6 +630,11 @@ let allToiletData = { features: [] };
 let ratingCache = {};
 let ratingSummaryCache = {};
 let userLocationMarker = null;
+let compassControl = null;
+let compassButtonEl = null;
+let compassEnabled = false;
+let compassHeadingDegrees = null;
+let compassListenerAttached = false;
 let currentMapLayer = null;
 let activeFilters = { accessible: false, baby: false, free: false, unisex: false };
 let disableFacilityNameSaves = false;
@@ -1474,8 +1666,7 @@ function initializeWithUserLocation() {
             map.setView([lat, lng], 15);
             
             // Add user location marker
-            const icon = L.divIcon({ className: 'custom-user-marker', html: '<div class="user-location-dot"></div>', iconSize: [14, 14], iconAnchor: [7, 7] });
-            userLocationMarker = L.marker([lat, lng], { icon }).addTo(map);
+            upsertUserLocationMarker(lat, lng);
             
             // Update theme based on new location and start periodic checks
             updateTimeBasedTheme();
@@ -2199,6 +2390,7 @@ window.addEventListener('unhandledrejection', (event) => {
 
 map.whenReady(async () => {
     trackEvent('app_loaded', { hostname: window.location.hostname });
+    addCompassControl();
     await applyApproximateCityFallback();
     initializeWithUserLocation();
 });
