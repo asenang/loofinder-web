@@ -401,6 +401,11 @@ button.btn-report, .btn-report { background: #fff4e5; color: #92400e !important;
     border-color: #93c5fd;
     background: #eff6ff;
 }
+.loofinder-compass-btn.is-rotated {
+    color: #007aff;
+    border-color: #bfdbfe;
+    background: rgba(239, 246, 255, 0.96);
+}
 .loofinder-compass-btn.is-unavailable {
     opacity: 0.55;
 }
@@ -751,6 +756,11 @@ textarea { width: 100%; padding: 12px; border: 1px solid #e2e8f0; border-radius:
     background: rgba(30, 58, 95, 0.96);
     color: #93c5fd;
     border-color: #3b82f6;
+}
+.theme-dark .loofinder-compass-btn.is-rotated {
+    background: rgba(30, 58, 95, 0.96);
+    color: #93c5fd;
+    border-color: #2563eb;
 }
 .theme-dark .btn-rate, .theme-dark .btn-cancel { background: #334155 !important; color: #f8fafc !important; border-color: #475569; }
 .theme-dark .toast, .theme-dark #loader, .theme-dark .modal-content { background: #1e293b; color: #f8fafc; border: none; }

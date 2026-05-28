@@ -1,7 +1,14 @@
 const DEFAULT_CITY_FALLBACK = { city: 'Melbourne', lat: -37.8136, lng: 144.9631, zoom: 13 };
+const EXPERIMENTAL_MOBILE_MAP_ROTATION = window.matchMedia('(max-width: 768px)').matches;
 
 // Initialize map with fallback coordinates (will be updated to user location if available)
-const map = L.map('map', { zoomControl: false }).setView([DEFAULT_CITY_FALLBACK.lat, DEFAULT_CITY_FALLBACK.lng], DEFAULT_CITY_FALLBACK.zoom);
+const map = L.map('map', {
+    zoomControl: false,
+    rotate: EXPERIMENTAL_MOBILE_MAP_ROTATION,
+    rotateControl: false,
+    touchRotate: EXPERIMENTAL_MOBILE_MAP_ROTATION,
+    bearing: 0
+}).setView([DEFAULT_CITY_FALLBACK.lat, DEFAULT_CITY_FALLBACK.lng], DEFAULT_CITY_FALLBACK.zoom);
 const savedTheme = localStorage.getItem('loofinder-theme');
 let baseMapLayer = null;
 let userLat = DEFAULT_CITY_FALLBACK.lat;
@@ -257,8 +264,46 @@ function extractCompassHeading(event) {
     return null;
 }
 
-function buildUserLocationIcon(heading = null) {
+function isMapRotationSupported() {
+    return typeof map.getBearing === 'function' && typeof map.setBearing === 'function';
+}
+
+function getMapBearingDegrees() {
+    if (!isMapRotationSupported()) {
+        return 0;
+    }
+    return normalizeCompassHeading(map.getBearing()) || 0;
+}
+
+function isMapRotated() {
+    const bearing = getMapBearingDegrees();
+    return Math.min(bearing, 360 - bearing) > 1;
+}
+
+function setMapBearingDegrees(bearing) {
+    if (!isMapRotationSupported()) {
+        return;
+    }
+    compassProgrammaticBearingUpdate = true;
+    map.setBearing(normalizeCompassHeading(bearing) || 0);
+    compassProgrammaticBearingUpdate = false;
+    updateCompassButtonState();
+}
+
+function getScreenHeadingDegrees(heading) {
     const normalizedHeading = normalizeCompassHeading(heading);
+    if (!Number.isFinite(normalizedHeading)) {
+        return null;
+    }
+    return normalizeCompassHeading(normalizedHeading - getMapBearingDegrees());
+}
+
+function getUserLocationHeadingDegrees() {
+    return compassHeadingDisplayEnabled ? compassHeadingDegrees : null;
+}
+
+function buildUserLocationIcon(heading = null) {
+    const normalizedHeading = getScreenHeadingDegrees(heading);
     const hasHeading = Number.isFinite(normalizedHeading);
     const headingStyle = hasHeading ? `--user-heading:${normalizedHeading.toFixed(1)}deg;` : '';
     const headingClass = hasHeading ? ' has-heading' : '';
@@ -271,11 +316,17 @@ function buildUserLocationIcon(heading = null) {
     });
 }
 
+function updateUserLocationMarkerIcon() {
+    if (userLocationMarker) {
+        userLocationMarker.setIcon(buildUserLocationIcon(getUserLocationHeadingDegrees()));
+    }
+}
+
 function upsertUserLocationMarker(lat, lng) {
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
         return;
     }
-    const icon = buildUserLocationIcon(compassEnabled ? compassHeadingDegrees : null);
+    const icon = buildUserLocationIcon(getUserLocationHeadingDegrees());
     if (userLocationMarker) {
         userLocationMarker.setLatLng([lat, lng]);
         userLocationMarker.setIcon(icon);
@@ -288,24 +339,33 @@ function updateCompassButtonState() {
     if (!compassButtonEl) {
         return;
     }
+    const mapRotated = isMapRotated();
+    const canResetMap = isMapRotationSupported() && mapRotated;
+    const isUnavailable = !isCompassSupported() && !canResetMap;
+
     compassButtonEl.classList.toggle('is-active', compassEnabled);
-    compassButtonEl.classList.toggle('is-unavailable', !isCompassSupported());
+    compassButtonEl.classList.toggle('is-rotated', mapRotated && !compassEnabled);
+    compassButtonEl.classList.toggle('is-unavailable', isUnavailable);
     compassButtonEl.setAttribute('aria-pressed', compassEnabled ? 'true' : 'false');
-    compassButtonEl.setAttribute('title',
-        !isCompassSupported()
-            ? 'Compass not supported on this device'
-            : (compassEnabled ? 'Disable compass heading' : 'Enable compass heading')
-    );
+
+    let title = 'Follow heading';
+    if (compassEnabled) {
+        title = 'Stop following heading and reset north';
+    } else if (canResetMap) {
+        title = 'Reset map north';
+    } else if (!isCompassSupported()) {
+        title = 'Compass not supported on this device';
+    }
+
+    compassButtonEl.setAttribute('title', title);
+    compassButtonEl.setAttribute('aria-label', title);
 
     const iconEl = compassButtonEl.querySelector('.material-symbols-outlined');
     if (!iconEl) {
         return;
     }
-    if (compassEnabled && Number.isFinite(compassHeadingDegrees)) {
-        iconEl.style.transform = `rotate(${compassHeadingDegrees.toFixed(1)}deg)`;
-    } else {
-        iconEl.style.transform = '';
-    }
+    const iconRotation = mapRotated ? -getMapBearingDegrees() : 0;
+    iconEl.style.transform = `rotate(${iconRotation.toFixed(1)}deg)`;
 }
 
 function handleCompassOrientation(event) {
@@ -314,9 +374,10 @@ function handleCompassOrientation(event) {
         return;
     }
     compassHeadingDegrees = heading;
-    if (userLocationMarker && compassEnabled) {
-        userLocationMarker.setIcon(buildUserLocationIcon(compassHeadingDegrees));
+    if (compassEnabled) {
+        setMapBearingDegrees(compassHeadingDegrees);
     }
+    updateUserLocationMarkerIcon();
     updateCompassButtonState();
 }
 
@@ -364,18 +425,23 @@ async function requestCompassPermissionIfNeeded() {
 async function toggleCompassMode() {
     if (compassEnabled) {
         compassEnabled = false;
-        compassHeadingDegrees = null;
-        stopCompassOrientationListener();
-        if (userLocationMarker) {
-            userLocationMarker.setIcon(buildUserLocationIcon());
-        }
+        setMapBearingDegrees(0);
+        updateUserLocationMarkerIcon();
         updateCompassButtonState();
-        trackEvent('compass_toggled', { enabled: false });
+        trackEvent('compass_toggled', { enabled: false, mode: 'reset_north' });
         return;
     }
 
-    if (!userLocationMarker) {
-        showToast('Enable location to use compass heading.', 'error');
+    if (isMapRotated()) {
+        setMapBearingDegrees(0);
+        updateUserLocationMarkerIcon();
+        updateCompassButtonState();
+        trackEvent('compass_map_reset', { source: 'compass_button' });
+        return;
+    }
+
+    if (!isMapRotationSupported()) {
+        showToast('Map rotation is not available in this browser.', 'error');
         return;
     }
 
@@ -385,9 +451,28 @@ async function toggleCompassMode() {
     }
 
     compassEnabled = true;
+    compassHeadingDisplayEnabled = true;
     startCompassOrientationListener();
+    if (Number.isFinite(compassHeadingDegrees)) {
+        setMapBearingDegrees(compassHeadingDegrees);
+    }
+    updateUserLocationMarkerIcon();
     updateCompassButtonState();
-    trackEvent('compass_toggled', { enabled: true });
+    trackEvent('compass_toggled', { enabled: true, mode: 'follow_heading' });
+}
+
+function handleMapRotate() {
+    if (compassProgrammaticBearingUpdate) {
+        updateCompassButtonState();
+        return;
+    }
+    if (compassEnabled) {
+        compassEnabled = false;
+        updateUserLocationMarkerIcon();
+        trackEvent('compass_toggled', { enabled: false, mode: 'manual_rotate' });
+    }
+    updateUserLocationMarkerIcon();
+    updateCompassButtonState();
 }
 
 function addCompassControl() {
@@ -583,7 +668,7 @@ syncSupportMenuForViewport();
 // Environment Configuration
 const IS_LOCAL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname === '';
 const BACKEND_URL = IS_LOCAL ? "http://localhost:8000" : "https://loofinder-api.onrender.com";
-const APP_VERSION = "13.2";
+const APP_VERSION = "13.5";
 
 function getAnalyticsSessionId() {
     const key = 'loofinder-analytics-session-id';
@@ -633,8 +718,10 @@ let userLocationMarker = null;
 let compassControl = null;
 let compassButtonEl = null;
 let compassEnabled = false;
+let compassHeadingDisplayEnabled = false;
 let compassHeadingDegrees = null;
 let compassListenerAttached = false;
+let compassProgrammaticBearingUpdate = false;
 let currentMapLayer = null;
 let activeFilters = { accessible: false, baby: false, free: false, unisex: false };
 let disableFacilityNameSaves = false;
@@ -1005,6 +1092,7 @@ function collapseSidebar() {
 
 // Collapse the sheet when the user drags the map
 map.on('dragstart', collapseSidebar);
+map.on('rotate', handleMapRotate);
 
 // --- Notification System ---
 function showToast(message, type = 'success') {

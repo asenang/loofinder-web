@@ -48,6 +48,13 @@ This document tracks potential future enhancements for the `loofinder-web` front
 - **Add:** A simple public privacy page explaining what is collected, what is not collected, and how users can contact you.
 - **MVP:** Static `privacy.html` linked from the support menu.
 
+### 8. User-Suggested Toilets
+
+- **Why:** Public toilet datasets can be incomplete or outdated, and users may know about toilets that are missing from the map.
+- **Add:** A “Suggest toilet” flow that lets users submit a location, basic facility details, notes, and optional contact email.
+- **MVP:** Let users suggest the current GPS location, map center, or a tapped map location; submit to a backend moderation queue rather than publishing immediately.
+- **Guardrails:** Keep suggestions hidden until reviewed, or clearly mark them as unverified if displayed later.
+
 ## Shipped User Features
 
 ### Progressive Web App (PWA) and Offline Support
