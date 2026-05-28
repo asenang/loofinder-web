@@ -244,9 +244,13 @@ function isCompassSupported() {
     return typeof window.DeviceOrientationEvent !== 'undefined';
 }
 
-const COMPASS_HEADING_UPDATE_INTERVAL_MS = 80;
-const COMPASS_HEADING_SMOOTHING_FACTOR = 0.2;
-const COMPASS_HEADING_MIN_DELTA_DEGREES = 1.5;
+const COMPASS_HEADING_UPDATE_INTERVAL_MS = 100;
+const COMPASS_HEADING_SMOOTHING_FACTOR = 0.15;
+const COMPASS_HEADING_MIN_DELTA_DEGREES = 2;
+const COMPASS_HEADING_MAX_JUMP_DEGREES = 40;
+const COMPASS_HEADING_SAMPLE_WINDOW_SIZE = 5;
+const COMPASS_HEADING_ABSOLUTE_EVENT_COOLDOWN_MS = 1200;
+const WEBKIT_COMPASS_MAX_ACCURACY_DEGREES = 35;
 
 function normalizeCompassHeading(value) {
     if (!Number.isFinite(value)) {
@@ -283,6 +287,68 @@ function smoothCompassHeading(rawHeading, previousHeading) {
     }
 
     return normalizeCompassHeading(normalizedPrevious + (delta * COMPASS_HEADING_SMOOTHING_FACTOR));
+}
+
+function getCompassCircularMean(headings) {
+    if (!Array.isArray(headings) || headings.length === 0) {
+        return null;
+    }
+    let sumSin = 0;
+    let sumCos = 0;
+    for (const value of headings) {
+        const heading = normalizeCompassHeading(value);
+        if (!Number.isFinite(heading)) {
+            continue;
+        }
+        const radians = heading * Math.PI / 180;
+        sumSin += Math.sin(radians);
+        sumCos += Math.cos(radians);
+    }
+    if (Math.abs(sumSin) < 1e-6 && Math.abs(sumCos) < 1e-6) {
+        return null;
+    }
+    return normalizeCompassHeading(Math.atan2(sumSin, sumCos) * 180 / Math.PI);
+}
+
+function getFilteredCompassHeading(rawHeading) {
+    const normalized = normalizeCompassHeading(rawHeading);
+    if (!Number.isFinite(normalized)) {
+        return null;
+    }
+
+    if (Number.isFinite(compassPreviousRawHeadingDegrees)) {
+        const jumpDelta = Math.abs(getCompassHeadingDelta(compassPreviousRawHeadingDegrees, normalized) || 0);
+        if (jumpDelta > COMPASS_HEADING_MAX_JUMP_DEGREES) {
+            return null;
+        }
+    }
+
+    compassPreviousRawHeadingDegrees = normalized;
+    compassHeadingSamples.push(normalized);
+    if (compassHeadingSamples.length > COMPASS_HEADING_SAMPLE_WINDOW_SIZE) {
+        compassHeadingSamples.shift();
+    }
+
+    return getCompassCircularMean(compassHeadingSamples);
+}
+
+function shouldUseCompassEvent(event, now) {
+    if (!event) {
+        return false;
+    }
+
+    const isAbsolute = event.type === 'deviceorientationabsolute' || event.absolute === true;
+    if (isAbsolute) {
+        compassLastAbsoluteEventMs = now;
+    } else if (now - compassLastAbsoluteEventMs < COMPASS_HEADING_ABSOLUTE_EVENT_COOLDOWN_MS) {
+        return false;
+    }
+
+    if (Number.isFinite(event.webkitCompassAccuracy) && event.webkitCompassAccuracy > WEBKIT_COMPASS_MAX_ACCURACY_DEGREES) {
+        return false;
+    }
+
+    return true;
 }
 
 function extractCompassHeading(event) {
@@ -407,7 +473,12 @@ function handleCompassOrientation(event) {
     if (now - compassLastHeadingUpdateMs < COMPASS_HEADING_UPDATE_INTERVAL_MS) {
         return;
     }
-    const heading = smoothCompassHeading(extractCompassHeading(event), compassHeadingDegrees);
+    if (!shouldUseCompassEvent(event, now)) {
+        return;
+    }
+
+    const filteredHeading = getFilteredCompassHeading(extractCompassHeading(event));
+    const heading = smoothCompassHeading(filteredHeading, compassHeadingDegrees);
     if (!Number.isFinite(heading)) {
         return;
     }
@@ -424,6 +495,10 @@ function startCompassOrientationListener() {
     if (compassListenerAttached) {
         return;
     }
+    compassHeadingSamples = [];
+    compassPreviousRawHeadingDegrees = null;
+    compassLastAbsoluteEventMs = 0;
+    compassLastHeadingUpdateMs = 0;
     window.addEventListener('deviceorientationabsolute', handleCompassOrientation, true);
     window.addEventListener('deviceorientation', handleCompassOrientation, true);
     compassListenerAttached = true;
@@ -436,6 +511,9 @@ function stopCompassOrientationListener() {
     window.removeEventListener('deviceorientationabsolute', handleCompassOrientation, true);
     window.removeEventListener('deviceorientation', handleCompassOrientation, true);
     compassListenerAttached = false;
+    compassHeadingSamples = [];
+    compassPreviousRawHeadingDegrees = null;
+    compassLastAbsoluteEventMs = 0;
 }
 
 async function requestCompassPermissionIfNeeded() {
@@ -707,7 +785,7 @@ syncSupportMenuForViewport();
 // Environment Configuration
 const IS_LOCAL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname === '';
 const BACKEND_URL = IS_LOCAL ? "http://localhost:8000" : "https://loofinder-api.onrender.com";
-const APP_VERSION = "13.6";
+const APP_VERSION = "13.7";
 
 function getAnalyticsSessionId() {
     const key = 'loofinder-analytics-session-id';
@@ -762,6 +840,9 @@ let compassHeadingDegrees = null;
 let compassListenerAttached = false;
 let compassProgrammaticBearingUpdate = false;
 let compassLastHeadingUpdateMs = 0;
+let compassLastAbsoluteEventMs = 0;
+let compassPreviousRawHeadingDegrees = null;
+let compassHeadingSamples = [];
 let currentMapLayer = null;
 let activeFilters = { accessible: false, baby: false, free: false, unisex: false };
 let disableFacilityNameSaves = false;
