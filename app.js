@@ -251,6 +251,9 @@ const COMPASS_HEADING_MAX_JUMP_DEGREES = 40;
 const COMPASS_HEADING_SAMPLE_WINDOW_SIZE = 5;
 const COMPASS_HEADING_ABSOLUTE_EVENT_COOLDOWN_MS = 1200;
 const WEBKIT_COMPASS_MAX_ACCURACY_DEGREES = 35;
+const COMPASS_BEARING_ANIMATION_FACTOR = 0.24;
+const COMPASS_BEARING_MAX_SPEED_DPS = 220;
+const COMPASS_BEARING_SNAP_DEGREES = 0.8;
 
 function normalizeCompassHeading(value) {
     if (!Number.isFinite(value)) {
@@ -390,6 +393,65 @@ function setMapBearingDegrees(bearing) {
     updateCompassButtonState();
 }
 
+function stopCompassBearingAnimation() {
+    if (compassBearingAnimationFrameId !== null) {
+        cancelAnimationFrame(compassBearingAnimationFrameId);
+        compassBearingAnimationFrameId = null;
+    }
+    compassBearingAnimationLastTs = 0;
+}
+
+function runCompassBearingAnimationFrame(timestamp) {
+    compassBearingAnimationFrameId = null;
+
+    if (!isMapRotationSupported() || !Number.isFinite(compassTargetBearingDegrees)) {
+        stopCompassBearingAnimation();
+        return;
+    }
+
+    const currentBearing = getMapBearingDegrees();
+    const delta = getCompassHeadingDelta(currentBearing, compassTargetBearingDegrees);
+    if (!Number.isFinite(delta)) {
+        stopCompassBearingAnimation();
+        return;
+    }
+
+    if (Math.abs(delta) <= COMPASS_BEARING_SNAP_DEGREES) {
+        setMapBearingDegrees(compassTargetBearingDegrees);
+        updateUserLocationMarkerIcon();
+        stopCompassBearingAnimation();
+        return;
+    }
+
+    const dtSeconds = compassBearingAnimationLastTs
+        ? Math.max(0.001, Math.min((timestamp - compassBearingAnimationLastTs) / 1000, 0.05))
+        : (1 / 60);
+    compassBearingAnimationLastTs = timestamp;
+
+    const easedStep = delta * COMPASS_BEARING_ANIMATION_FACTOR;
+    const maxStep = COMPASS_BEARING_MAX_SPEED_DPS * dtSeconds;
+    let step = Math.sign(easedStep || delta) * Math.min(Math.abs(easedStep || delta), maxStep);
+    if (Math.abs(step) > Math.abs(delta)) {
+        step = delta;
+    }
+
+    setMapBearingDegrees(currentBearing + step);
+    updateUserLocationMarkerIcon();
+    compassBearingAnimationFrameId = requestAnimationFrame(runCompassBearingAnimationFrame);
+}
+
+function setCompassBearingTarget(bearing) {
+    const normalizedBearing = normalizeCompassHeading(bearing);
+    if (!Number.isFinite(normalizedBearing)) {
+        return;
+    }
+
+    compassTargetBearingDegrees = normalizedBearing;
+    if (compassBearingAnimationFrameId === null) {
+        compassBearingAnimationFrameId = requestAnimationFrame(runCompassBearingAnimationFrame);
+    }
+}
+
 function getScreenHeadingDegrees(heading) {
     const normalizedHeading = normalizeCompassHeading(heading);
     if (!Number.isFinite(normalizedHeading)) {
@@ -444,15 +506,16 @@ function updateCompassButtonState() {
     const isUnavailable = !isCompassSupported() && !canResetMap;
 
     compassButtonEl.classList.toggle('is-active', compassEnabled);
-    compassButtonEl.classList.toggle('is-rotated', mapRotated && !compassEnabled);
+    compassButtonEl.classList.toggle('is-rotated', mapRotated);
     compassButtonEl.classList.toggle('is-unavailable', isUnavailable);
+    compassButtonEl.classList.toggle('is-hidden', !mapRotated && !compassEnabled);
     compassButtonEl.setAttribute('aria-pressed', compassEnabled ? 'true' : 'false');
 
-    let title = 'Follow heading';
-    if (compassEnabled) {
-        title = 'Stop following heading and reset north';
-    } else if (canResetMap) {
+    let title = 'Enable heading-up mode';
+    if (canResetMap) {
         title = 'Reset map north';
+    } else if (compassEnabled) {
+        title = 'Stop heading-up mode';
     } else if (!isCompassSupported()) {
         title = 'Compass not supported on this device';
     }
@@ -485,7 +548,7 @@ function handleCompassOrientation(event) {
     compassLastHeadingUpdateMs = now;
     compassHeadingDegrees = heading;
     if (compassEnabled) {
-        setMapBearingDegrees(compassHeadingDegrees);
+        setCompassBearingTarget(compassHeadingDegrees);
     }
     updateUserLocationMarkerIcon();
     updateCompassButtonState();
@@ -499,6 +562,8 @@ function startCompassOrientationListener() {
     compassPreviousRawHeadingDegrees = null;
     compassLastAbsoluteEventMs = 0;
     compassLastHeadingUpdateMs = 0;
+    compassTargetBearingDegrees = getMapBearingDegrees();
+    stopCompassBearingAnimation();
     window.addEventListener('deviceorientationabsolute', handleCompassOrientation, true);
     window.addEventListener('deviceorientation', handleCompassOrientation, true);
     compassListenerAttached = true;
@@ -514,6 +579,8 @@ function stopCompassOrientationListener() {
     compassHeadingSamples = [];
     compassPreviousRawHeadingDegrees = null;
     compassLastAbsoluteEventMs = 0;
+    compassTargetBearingDegrees = getMapBearingDegrees();
+    stopCompassBearingAnimation();
 }
 
 async function requestCompassPermissionIfNeeded() {
@@ -540,20 +607,21 @@ async function requestCompassPermissionIfNeeded() {
 }
 
 async function toggleCompassMode() {
-    if (compassEnabled) {
-        compassEnabled = false;
-        setMapBearingDegrees(0);
-        updateUserLocationMarkerIcon();
-        updateCompassButtonState();
-        trackEvent('compass_toggled', { enabled: false, mode: 'reset_north' });
-        return;
-    }
-
     if (isMapRotated()) {
-        setMapBearingDegrees(0);
+        compassEnabled = false;
+        setCompassBearingTarget(0);
         updateUserLocationMarkerIcon();
         updateCompassButtonState();
         trackEvent('compass_map_reset', { source: 'compass_button' });
+        return;
+    }
+
+    if (compassEnabled) {
+        compassEnabled = false;
+        stopCompassBearingAnimation();
+        updateUserLocationMarkerIcon();
+        updateCompassButtonState();
+        trackEvent('compass_toggled', { enabled: false, mode: 'heading_up_off' });
         return;
     }
 
@@ -571,11 +639,11 @@ async function toggleCompassMode() {
     compassHeadingDisplayEnabled = true;
     startCompassOrientationListener();
     if (Number.isFinite(compassHeadingDegrees)) {
-        setMapBearingDegrees(compassHeadingDegrees);
+        setCompassBearingTarget(compassHeadingDegrees);
     }
     updateUserLocationMarkerIcon();
     updateCompassButtonState();
-    trackEvent('compass_toggled', { enabled: true, mode: 'follow_heading' });
+    trackEvent('compass_toggled', { enabled: true, mode: 'heading_up_on' });
 }
 
 function handleMapRotate() {
@@ -583,6 +651,10 @@ function handleMapRotate() {
         updateCompassButtonState();
         return;
     }
+
+    stopCompassBearingAnimation();
+    compassTargetBearingDegrees = getMapBearingDegrees();
+
     if (compassEnabled) {
         compassEnabled = false;
         updateUserLocationMarkerIcon();
@@ -603,7 +675,7 @@ function addCompassControl() {
             const container = L.DomUtil.create('div', 'loofinder-compass-control');
             const button = L.DomUtil.create('button', 'loofinder-compass-btn', container);
             button.type = 'button';
-            button.setAttribute('aria-label', 'Toggle compass heading');
+            button.setAttribute('aria-label', 'Map compass');
             button.innerHTML = '<span class="material-symbols-outlined" aria-hidden="true">explore</span>';
 
             L.DomEvent.disableClickPropagation(container);
@@ -785,7 +857,7 @@ syncSupportMenuForViewport();
 // Environment Configuration
 const IS_LOCAL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname === '';
 const BACKEND_URL = IS_LOCAL ? "http://localhost:8000" : "https://loofinder-api.onrender.com";
-const APP_VERSION = "13.7";
+const APP_VERSION = "13.8";
 
 function getAnalyticsSessionId() {
     const key = 'loofinder-analytics-session-id';
@@ -843,6 +915,9 @@ let compassLastHeadingUpdateMs = 0;
 let compassLastAbsoluteEventMs = 0;
 let compassPreviousRawHeadingDegrees = null;
 let compassHeadingSamples = [];
+let compassTargetBearingDegrees = 0;
+let compassBearingAnimationFrameId = null;
+let compassBearingAnimationLastTs = 0;
 let currentMapLayer = null;
 let activeFilters = { accessible: false, baby: false, free: false, unisex: false };
 let disableFacilityNameSaves = false;
