@@ -244,11 +244,45 @@ function isCompassSupported() {
     return typeof window.DeviceOrientationEvent !== 'undefined';
 }
 
+const COMPASS_HEADING_UPDATE_INTERVAL_MS = 80;
+const COMPASS_HEADING_SMOOTHING_FACTOR = 0.2;
+const COMPASS_HEADING_MIN_DELTA_DEGREES = 1.5;
+
 function normalizeCompassHeading(value) {
     if (!Number.isFinite(value)) {
         return null;
     }
     return ((value % 360) + 360) % 360;
+}
+
+function getCompassHeadingDelta(from, to) {
+    const start = normalizeCompassHeading(from);
+    const end = normalizeCompassHeading(to);
+    if (!Number.isFinite(start) || !Number.isFinite(end)) {
+        return null;
+    }
+    return ((end - start + 540) % 360) - 180;
+}
+
+function smoothCompassHeading(rawHeading, previousHeading) {
+    const normalizedRaw = normalizeCompassHeading(rawHeading);
+    const normalizedPrevious = normalizeCompassHeading(previousHeading);
+    if (!Number.isFinite(normalizedRaw)) {
+        return null;
+    }
+    if (!Number.isFinite(normalizedPrevious)) {
+        return normalizedRaw;
+    }
+
+    const delta = getCompassHeadingDelta(normalizedPrevious, normalizedRaw);
+    if (!Number.isFinite(delta)) {
+        return normalizedRaw;
+    }
+    if (Math.abs(delta) < COMPASS_HEADING_MIN_DELTA_DEGREES) {
+        return normalizedPrevious;
+    }
+
+    return normalizeCompassHeading(normalizedPrevious + (delta * COMPASS_HEADING_SMOOTHING_FACTOR));
 }
 
 function extractCompassHeading(event) {
@@ -369,10 +403,15 @@ function updateCompassButtonState() {
 }
 
 function handleCompassOrientation(event) {
-    const heading = extractCompassHeading(event);
+    const now = performance.now();
+    if (now - compassLastHeadingUpdateMs < COMPASS_HEADING_UPDATE_INTERVAL_MS) {
+        return;
+    }
+    const heading = smoothCompassHeading(extractCompassHeading(event), compassHeadingDegrees);
     if (!Number.isFinite(heading)) {
         return;
     }
+    compassLastHeadingUpdateMs = now;
     compassHeadingDegrees = heading;
     if (compassEnabled) {
         setMapBearingDegrees(compassHeadingDegrees);
@@ -668,7 +707,7 @@ syncSupportMenuForViewport();
 // Environment Configuration
 const IS_LOCAL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname === '';
 const BACKEND_URL = IS_LOCAL ? "http://localhost:8000" : "https://loofinder-api.onrender.com";
-const APP_VERSION = "13.5";
+const APP_VERSION = "13.6";
 
 function getAnalyticsSessionId() {
     const key = 'loofinder-analytics-session-id';
@@ -722,6 +761,7 @@ let compassHeadingDisplayEnabled = false;
 let compassHeadingDegrees = null;
 let compassListenerAttached = false;
 let compassProgrammaticBearingUpdate = false;
+let compassLastHeadingUpdateMs = 0;
 let currentMapLayer = null;
 let activeFilters = { accessible: false, baby: false, free: false, unisex: false };
 let disableFacilityNameSaves = false;
