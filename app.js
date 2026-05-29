@@ -254,6 +254,8 @@ const WEBKIT_COMPASS_MAX_ACCURACY_DEGREES = 35;
 const COMPASS_BEARING_ANIMATION_FACTOR = 0.24;
 const COMPASS_BEARING_MAX_SPEED_DPS = 220;
 const COMPASS_BEARING_SNAP_DEGREES = 0.8;
+const COMPASS_RECENTER_MAX_OFFSET_PX = 28;
+const COMPASS_RECENTER_ANIMATION_SECONDS = 0.45;
 
 function normalizeCompassHeading(value) {
     if (!Number.isFinite(value)) {
@@ -497,13 +499,44 @@ function upsertUserLocationMarker(lat, lng) {
     userLocationMarker = L.marker([lat, lng], { icon }).addTo(map);
 }
 
+function hasUserLocationMarker() {
+    return !!(userLocationMarker && typeof userLocationMarker.getLatLng === 'function');
+}
+
+function isMapCenteredOnUserLocation() {
+    if (!hasUserLocationMarker()) {
+        return false;
+    }
+
+    const userLatLng = userLocationMarker.getLatLng();
+    const center = map.getCenter();
+    const zoom = map.getZoom();
+    const userPoint = map.project(userLatLng, zoom);
+    const centerPoint = map.project(center, zoom);
+    return userPoint.distanceTo(centerPoint) <= COMPASS_RECENTER_MAX_OFFSET_PX;
+}
+
+function recenterMapToUserLocation() {
+    if (!hasUserLocationMarker()) {
+        return false;
+    }
+
+    const userLatLng = userLocationMarker.getLatLng();
+    map.flyTo([userLatLng.lat, userLatLng.lng], map.getZoom(), {
+        animate: true,
+        duration: COMPASS_RECENTER_ANIMATION_SECONDS
+    });
+    return true;
+}
+
 function updateCompassButtonState() {
     if (!compassButtonEl) {
         return;
     }
     const mapRotated = isMapRotated();
+    const canRecenterOnUser = hasUserLocationMarker() && !isMapCenteredOnUserLocation();
     const canResetMap = isMapRotationSupported() && mapRotated;
-    const isUnavailable = !isCompassSupported() && !canResetMap;
+    const isUnavailable = !isCompassSupported() && !canResetMap && !canRecenterOnUser;
 
     compassButtonEl.classList.toggle('is-active', compassEnabled);
     compassButtonEl.classList.toggle('is-rotated', mapRotated);
@@ -511,7 +544,9 @@ function updateCompassButtonState() {
     compassButtonEl.setAttribute('aria-pressed', compassEnabled ? 'true' : 'false');
 
     let title = 'Enable heading-up mode';
-    if (canResetMap) {
+    if (canRecenterOnUser) {
+        title = 'Center on your location';
+    } else if (canResetMap) {
         title = 'Reset map north';
     } else if (compassEnabled) {
         title = 'Stop heading-up mode';
@@ -606,7 +641,27 @@ async function requestCompassPermissionIfNeeded() {
 }
 
 async function toggleCompassMode() {
-    if (isMapRotated()) {
+    const mapRotated = isMapRotated();
+    const canRecenterOnUser = hasUserLocationMarker() && !isMapCenteredOnUserLocation();
+
+    if (canRecenterOnUser) {
+        if (mapRotated && !compassEnabled) {
+            compassEnabled = false;
+            setCompassBearingTarget(0);
+        }
+
+        if (recenterMapToUserLocation()) {
+            updateUserLocationMarkerIcon();
+            updateCompassButtonState();
+            trackEvent('compass_recentered', {
+                source: 'compass_button',
+                reset_north: mapRotated && !compassEnabled
+            });
+            return;
+        }
+    }
+
+    if (mapRotated) {
         compassEnabled = false;
         setCompassBearingTarget(0);
         updateUserLocationMarkerIcon();
@@ -856,7 +911,7 @@ syncSupportMenuForViewport();
 // Environment Configuration
 const IS_LOCAL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname === '';
 const BACKEND_URL = IS_LOCAL ? "http://localhost:8000" : "https://loofinder-api.onrender.com";
-const APP_VERSION = "13.9";
+const APP_VERSION = "14.0";
 
 function getAnalyticsSessionId() {
     const key = 'loofinder-analytics-session-id';
