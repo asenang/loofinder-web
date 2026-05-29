@@ -508,7 +508,6 @@ function updateCompassButtonState() {
     compassButtonEl.classList.toggle('is-active', compassEnabled);
     compassButtonEl.classList.toggle('is-rotated', mapRotated);
     compassButtonEl.classList.toggle('is-unavailable', isUnavailable);
-    compassButtonEl.classList.toggle('is-hidden', !mapRotated && !compassEnabled);
     compassButtonEl.setAttribute('aria-pressed', compassEnabled ? 'true' : 'false');
 
     let title = 'Enable heading-up mode';
@@ -857,7 +856,7 @@ syncSupportMenuForViewport();
 // Environment Configuration
 const IS_LOCAL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname === '';
 const BACKEND_URL = IS_LOCAL ? "http://localhost:8000" : "https://loofinder-api.onrender.com";
-const APP_VERSION = "13.8";
+const APP_VERSION = "13.9";
 
 function getAnalyticsSessionId() {
     const key = 'loofinder-analytics-session-id';
