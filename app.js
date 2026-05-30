@@ -516,17 +516,12 @@ function isMapCenteredOnUserLocation() {
     return userPoint.distanceTo(centerPoint) <= COMPASS_RECENTER_MAX_OFFSET_PX;
 }
 
-function recenterMapToUserLocation({ refreshResults = false } = {}) {
+function recenterMapToUserLocation() {
     if (!hasUserLocationMarker()) {
         return false;
     }
 
     const userLatLng = userLocationMarker.getLatLng();
-    if (refreshResults) {
-        map.once('moveend', () => {
-            loadDataForCurrentBounds(LOAD_DATA_TRIGGER.SEARCH_THIS_AREA);
-        });
-    }
     map.flyTo([userLatLng.lat, userLatLng.lng], map.getZoom(), {
         animate: true,
         duration: COMPASS_RECENTER_ANIMATION_SECONDS
@@ -655,13 +650,12 @@ async function toggleCompassMode() {
             setCompassBearingTarget(0);
         }
 
-        if (recenterMapToUserLocation({ refreshResults: true })) {
+        if (recenterMapToUserLocation()) {
             updateUserLocationMarkerIcon();
             updateCompassButtonState();
             trackEvent('compass_recentered', {
                 source: 'compass_button',
-                reset_north: mapRotated && !compassEnabled,
-                refresh_results: true
+                reset_north: mapRotated && !compassEnabled
             });
             return;
         }
@@ -917,7 +911,7 @@ syncSupportMenuForViewport();
 // Environment Configuration
 const IS_LOCAL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname === '';
 const BACKEND_URL = IS_LOCAL ? "http://localhost:8000" : "https://loofinder-api.onrender.com";
-const APP_VERSION = "14.1";
+const APP_VERSION = "14.2";
 
 function getAnalyticsSessionId() {
     const key = 'loofinder-analytics-session-id';
