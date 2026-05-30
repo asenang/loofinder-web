@@ -348,8 +348,51 @@ button.btn-report, .btn-report { background: #fff4e5; color: #92400e !important;
 .btn-primary { background: #007aff; color: white; border: none; padding: 12px; border-radius: 8px; font-weight: 600; cursor: pointer; width: 100%; transition: 0.2s; display: flex; justify-content: center; align-items: center; gap: 8px; }
 .btn-primary:hover { background: #005ce6; }
 #btn-search-area {
-    display: none; position: absolute; top: 20px; left: calc(360px + (100% - 360px)/2); transform: translateX(-50%);
-    z-index: 2000; background: white; color: #007aff; border: 1px solid #e2e8f0; padding: 10px 20px; border-radius: 20px; font-weight: 600; font-size: 14px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); cursor: pointer;
+    display: none;
+    position: absolute;
+    top: 20px;
+    left: calc(360px + (100% - 360px)/2);
+    transform: translateX(-50%);
+    z-index: 2000;
+    background: white;
+    color: #007aff;
+    border: 1px solid #e2e8f0;
+    padding: 10px 20px;
+    border-radius: 20px;
+    font-weight: 600;
+    font-size: 14px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    cursor: pointer;
+    align-items: center;
+    gap: 8px;
+    transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+}
+#btn-search-area .material-symbols-outlined {
+    font-size: 18px;
+}
+#btn-search-area.is-stale {
+    color: #007aff;
+    border-color: #93c5fd;
+    background: #eff6ff;
+}
+#btn-search-area.is-current {
+    color: #0f766e;
+    border-color: #99f6e4;
+    background: #f0fdfa;
+    cursor: default;
+}
+#btn-search-area.is-loading {
+    color: #92400e;
+    border-color: #fcd34d;
+    background: #fffbeb;
+    cursor: progress;
+}
+#btn-search-area.is-loading .material-symbols-outlined {
+    animation: spin-1s linear infinite;
+}
+@keyframes spin-1s {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
 }
 .theme-toggle {
     position: absolute;
@@ -722,6 +765,9 @@ textarea { width: 100%; padding: 12px; border: 1px solid #e2e8f0; border-radius:
 
 .theme-dark body, .theme-dark html { background-color: #121212; }
 .theme-dark .sidebar, .theme-dark .modal-content, .theme-dark .toast, .theme-dark #loader, .theme-dark #btn-search-area { background: rgba(30, 30, 30, 0.95); color: #e2e8f0; border: 1px solid #333; }
+.theme-dark #btn-search-area.is-stale { color: #93c5fd; border-color: #2563eb; background: rgba(30, 58, 95, 0.96); }
+.theme-dark #btn-search-area.is-current { color: #5eead4; border-color: #14b8a6; background: rgba(15, 118, 110, 0.22); }
+.theme-dark #btn-search-area.is-loading { color: #fde68a; border-color: #f59e0b; background: rgba(120, 53, 15, 0.38); }
 .theme-dark h1, .theme-dark .modal-title, .theme-dark .list-item-title, .theme-dark .popup-title { color: #f8fafc !important; }
 .theme-dark p, .theme-dark .list-header, .theme-dark .list-item-rating .pending, .theme-dark .list-item-features, .theme-dark .popup-rating { color: #94a3b8 !important; }
 .theme-dark .filter-chip { background: #334155; color: #e2e8f0; }

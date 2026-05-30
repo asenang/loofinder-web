@@ -565,6 +565,15 @@ function updateCompassButtonState() {
     iconEl.style.transform = `rotate(${iconRotation.toFixed(1)}deg)`;
 }
 
+function trackCompassButtonAction(action, properties = {}) {
+    trackEvent('compass_button_clicked', {
+        action,
+        compass_enabled: compassEnabled,
+        map_rotated: isMapRotated(),
+        ...properties
+    });
+}
+
 function handleCompassOrientation(event) {
     const now = performance.now();
     if (now - compassLastHeadingUpdateMs < COMPASS_HEADING_UPDATE_INTERVAL_MS) {
@@ -651,6 +660,9 @@ async function toggleCompassMode() {
         }
 
         if (recenterMapToUserLocation()) {
+            trackCompassButtonAction('recenter', {
+                reset_north: mapRotated && !compassEnabled
+            });
             updateUserLocationMarkerIcon();
             updateCompassButtonState();
             trackEvent('compass_recentered', {
@@ -664,6 +676,7 @@ async function toggleCompassMode() {
     if (mapRotated) {
         compassEnabled = false;
         setCompassBearingTarget(0);
+        trackCompassButtonAction('reset_north');
         updateUserLocationMarkerIcon();
         updateCompassButtonState();
         trackEvent('compass_map_reset', { source: 'compass_button' });
@@ -673,6 +686,7 @@ async function toggleCompassMode() {
     if (compassEnabled) {
         compassEnabled = false;
         stopCompassBearingAnimation();
+        trackCompassButtonAction('heading_up_off');
         updateUserLocationMarkerIcon();
         updateCompassButtonState();
         trackEvent('compass_toggled', { enabled: false, mode: 'heading_up_off' });
@@ -680,18 +694,21 @@ async function toggleCompassMode() {
     }
 
     if (!isMapRotationSupported()) {
+        trackCompassButtonAction('heading_up_unavailable');
         showToast('Map rotation is not available in this browser.', 'error');
         return;
     }
 
     const granted = await requestCompassPermissionIfNeeded();
     if (!granted) {
+        trackCompassButtonAction('heading_up_permission_denied');
         return;
     }
 
     compassEnabled = true;
     compassHeadingDisplayEnabled = true;
     startCompassOrientationListener();
+    trackCompassButtonAction('heading_up_on');
     if (Number.isFinite(compassHeadingDegrees)) {
         setCompassBearingTarget(compassHeadingDegrees);
     }
@@ -911,7 +928,7 @@ syncSupportMenuForViewport();
 // Environment Configuration
 const IS_LOCAL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname === '';
 const BACKEND_URL = IS_LOCAL ? "http://localhost:8000" : "https://loofinder-api.onrender.com";
-const APP_VERSION = "14.2";
+const APP_VERSION = "14.3";
 
 function getAnalyticsSessionId() {
     const key = 'loofinder-analytics-session-id';
@@ -995,6 +1012,101 @@ const LOAD_DATA_TRIGGER = Object.freeze({
     REVIEW_SUBMITTED: 'review_submitted'
 });
 const ALLOWED_LOAD_DATA_TRIGGERS = new Set(Object.values(LOAD_DATA_TRIGGER));
+const SEARCH_AREA_STALE_DISTANCE_PX = 120;
+const SEARCH_AREA_STATES = Object.freeze({
+    HIDDEN: 'hidden',
+    CURRENT: 'current',
+    STALE: 'stale',
+    LOADING: 'loading'
+});
+
+let searchAreaButtonState = SEARCH_AREA_STATES.HIDDEN;
+let lastLoadedViewport = null;
+
+function getSearchAreaButtonElement() {
+    return document.getElementById('btn-search-area');
+}
+
+function setSearchAreaButtonState(state) {
+    const button = getSearchAreaButtonElement();
+    if (!button) {
+        return;
+    }
+
+    searchAreaButtonState = state;
+    button.dataset.state = state;
+    button.classList.toggle('is-stale', state === SEARCH_AREA_STATES.STALE);
+    button.classList.toggle('is-current', state === SEARCH_AREA_STATES.CURRENT);
+    button.classList.toggle('is-loading', state === SEARCH_AREA_STATES.LOADING);
+
+    if (state === SEARCH_AREA_STATES.HIDDEN) {
+        button.style.display = 'none';
+        button.disabled = true;
+        return;
+    }
+
+    button.style.display = 'inline-flex';
+    button.disabled = state !== SEARCH_AREA_STATES.STALE;
+
+    let icon = 'refresh';
+    let label = 'Search this area';
+    if (state === SEARCH_AREA_STATES.LOADING) {
+        icon = 'progress_activity';
+        label = 'Updating nearby toilets...';
+    } else if (state === SEARCH_AREA_STATES.CURRENT) {
+        icon = 'check_circle';
+        label = 'Results up to date';
+    }
+
+    button.innerHTML = `<span class="material-symbols-outlined" aria-hidden="true">${icon}</span> ${label}`;
+    button.setAttribute('title', label);
+    button.setAttribute('aria-label', label);
+}
+
+function getSearchAreaStalenessSnapshot() {
+    if (!lastLoadedViewport) {
+        return null;
+    }
+
+    const currentCenter = map.getCenter();
+    const currentZoom = map.getZoom();
+    const loadedCenter = L.latLng(lastLoadedViewport.lat, lastLoadedViewport.lng);
+    const loadedPoint = map.project(loadedCenter, currentZoom);
+    const currentPoint = map.project(currentCenter, currentZoom);
+    const distancePx = currentPoint.distanceTo(loadedPoint);
+    const zoomDelta = Math.abs(currentZoom - lastLoadedViewport.zoom);
+    const stale = zoomDelta > 0.01 || distancePx > SEARCH_AREA_STALE_DISTANCE_PX;
+
+    return { distancePx, zoomDelta, stale };
+}
+
+function updateSearchAreaButtonStateFromViewport() {
+    if (searchAreaButtonState === SEARCH_AREA_STATES.LOADING) {
+        return;
+    }
+
+    const snapshot = getSearchAreaStalenessSnapshot();
+    if (!snapshot) {
+        setSearchAreaButtonState(SEARCH_AREA_STATES.HIDDEN);
+        return;
+    }
+
+    setSearchAreaButtonState(snapshot.stale ? SEARCH_AREA_STATES.STALE : SEARCH_AREA_STATES.CURRENT);
+}
+
+function getSearchAreaAnalyticsProperties() {
+    const snapshot = getSearchAreaStalenessSnapshot();
+    if (!snapshot) {
+        return { state: searchAreaButtonState, stale: null };
+    }
+
+    return {
+        state: searchAreaButtonState,
+        stale: snapshot.stale,
+        distance_px: Math.round(snapshot.distancePx),
+        zoom_delta: Number(snapshot.zoomDelta.toFixed(2))
+    };
+}
 
 function shouldAttemptBackendRequest() {
     return !backendUnavailable || Date.now() >= backendRetryAfterMs;
@@ -1572,9 +1684,11 @@ async function loadDataForCurrentBounds(trigger) {
     }
 
     document.getElementById('loader').style.display = 'flex';
-    document.getElementById('btn-search-area').style.display = 'none';
+    setSearchAreaButtonState(SEARCH_AREA_STATES.LOADING);
 
     const loadToken = ++currentLoadToken;
+    const requestedCenter = map.getCenter();
+    const requestedZoom = map.getZoom();
     const bounds = map.getBounds();
     
     try {
@@ -1613,6 +1727,13 @@ async function loadDataForCurrentBounds(trigger) {
         allToiletData.features = dedupeFeatures(elementsToFeatures(data.elements || []));
         await renderMapPoints();
 
+        lastLoadedViewport = {
+            lat: requestedCenter.lat,
+            lng: requestedCenter.lng,
+            zoom: requestedZoom
+        };
+        updateSearchAreaButtonStateFromViewport();
+
         resolveNamesInBackground(loadToken, allToiletData.features).catch((error) => {
             console.error("Background name resolution failed:", error);
         });
@@ -1621,6 +1742,7 @@ async function loadDataForCurrentBounds(trigger) {
         console.error("Overpass API Error:", e); 
         trackEvent('overpass_fetch_failed', { message: e && e.message ? e.message : 'unknown' });
         showToast("Error finding toilets in this area. Try zooming in or moving to a different area.", "error");
+        setSearchAreaButtonState(SEARCH_AREA_STATES.STALE);
     } finally { 
         document.getElementById('loader').style.display = 'none'; 
     }
@@ -2043,9 +2165,9 @@ function startPeriodicThemeUpdates() {
     themeUpdateInterval = setInterval(updateTimeBasedTheme, 5 * 60 * 1000);
 }
 
-map.on('moveend', () => { document.getElementById('btn-search-area').style.display = 'block'; });
+map.on('moveend', updateSearchAreaButtonStateFromViewport);
 function triggerSearchArea() {
-    trackEvent('search_this_area_clicked');
+    trackEvent('search_this_area_clicked', getSearchAreaAnalyticsProperties());
     loadDataForCurrentBounds(LOAD_DATA_TRIGGER.SEARCH_THIS_AREA);
 }
 
