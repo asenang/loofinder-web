@@ -27,7 +27,7 @@
     
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0" />
     
-    <link rel="stylesheet" href="style.css?v=13.3">
+    <link rel="stylesheet" href="style.css?v=13.5">
 
     <!-- Favicon -->
     <link rel="icon" type="image/svg+xml" href="assets/logos/loofinder-logo-icon.svg">
@@ -37,10 +37,40 @@
 <body>
     <div id="toast-container" class="toast-container" aria-live="polite" aria-atomic="true" aria-relevant="additions text"></div>
 
-    <div id="loader"><div class="spinner"></div> Fetching facilities...</div>
+    <div id="loader"><div class="spinner"></div> Getting your loos together...</div>
     <button id="theme-toggle" class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle dark mode">
         <span id="theme-toggle-icon" class="material-symbols-outlined">dark_mode</span>
     </button>
+    <div id="place-search" class="place-search" role="search">
+        <button
+            id="place-search-toggle"
+            class="place-search-toggle"
+            type="button"
+            aria-label="Search toilets around an address or suburb"
+            aria-expanded="false"
+            aria-controls="place-search-input"
+        >
+            <span class="material-symbols-outlined" aria-hidden="true">search</span>
+        </button>
+        <label for="place-search-input" class="sr-only">Search suburb or address</label>
+        <div class="place-search-field">
+            <span class="material-symbols-outlined place-search-icon" aria-hidden="true">search</span>
+            <input
+                id="place-search-input"
+                type="search"
+                placeholder="Search suburb or address"
+                autocomplete="off"
+                spellcheck="false"
+                role="combobox"
+                aria-autocomplete="list"
+                aria-expanded="false"
+                aria-controls="place-search-results"
+            />
+            <button id="place-search-clear" class="place-search-clear" type="button" aria-label="Clear place search">close</button>
+        </div>
+        <div id="place-search-status" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+        <div id="place-search-results" class="place-search-results" role="listbox" aria-label="Address search suggestions" hidden></div>
+    </div>
     <button id="btn-search-area" onclick="triggerSearchArea()"><span class="material-symbols-outlined" style="vertical-align: middle; font-size: 18px;">refresh</span> Search this area</button>
 
     <div id="reviewModal" class="modal-overlay" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="modalFacilityName">
@@ -229,6 +259,6 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://unpkg.com/leaflet-rotate@0.2.8/dist/leaflet-rotate.js"></script>
     <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
-    <script src="app.js?v=14.3"></script>
+    <script src="app.js?v=14.6"></script>
 </body>
 </html>

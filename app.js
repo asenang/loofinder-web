@@ -170,6 +170,12 @@ const supportMenuDropdownEl = document.getElementById('support-menu-dropdown');
 const supportDesktopMenuEl = document.getElementById('support-desktop-menu');
 const supportDesktopToggleEl = document.getElementById('support-desktop-toggle');
 const supportDesktopDropdownEl = document.getElementById('support-desktop-dropdown');
+const placeSearchContainerEl = document.getElementById('place-search');
+const placeSearchToggleEl = document.getElementById('place-search-toggle');
+const placeSearchInputEl = document.getElementById('place-search-input');
+const placeSearchClearEl = document.getElementById('place-search-clear');
+const placeSearchResultsEl = document.getElementById('place-search-results');
+const placeSearchStatusEl = document.getElementById('place-search-status');
 
 let activeModalEl = null;
 let activeModalCloseHandler = null;
@@ -877,6 +883,13 @@ document.addEventListener('click', (event) => {
     if (supportDesktopMenuEl && supportDesktopMenuEl.classList.contains('is-open') && !supportDesktopMenuEl.contains(event.target)) {
         setSupportDesktopMenuOpen(false);
     }
+
+    if (placeSearchContainerEl && !placeSearchContainerEl.contains(event.target)) {
+        hidePlaceSearchResults();
+        if (isMobileViewport() && placeSearchUiExpanded) {
+            setPlaceSearchUiExpanded(false);
+        }
+    }
 });
 
 function trapFocusInActiveModal(event) {
@@ -919,6 +932,35 @@ document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') {
         setSupportMenuOpen(false);
         setSupportDesktopMenuOpen(false);
+        if (placeSearchUiExpanded) {
+            setPlaceSearchUiExpanded(false);
+        } else {
+            hidePlaceSearchResults();
+        }
+        return;
+    }
+
+    if (event.key === '/' && !event.altKey && !event.ctrlKey && !event.metaKey) {
+        const target = event.target;
+        const isTypingField = target && (
+            target.isContentEditable
+            || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)
+        );
+        if (isTypingField) {
+            return;
+        }
+
+        event.preventDefault();
+        if (!isMobileViewport()) {
+            placeSearchInputEl?.focus();
+            return;
+        }
+
+        if (!placeSearchUiExpanded) {
+            setPlaceSearchUiExpanded(true, { focusInput: true });
+        } else if (placeSearchInputEl) {
+            placeSearchInputEl.focus();
+        }
     }
 });
 
@@ -928,7 +970,7 @@ syncSupportMenuForViewport();
 // Environment Configuration
 const IS_LOCAL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname === '';
 const BACKEND_URL = IS_LOCAL ? "http://localhost:8000" : "https://loofinder-api.onrender.com";
-const APP_VERSION = "14.3";
+const APP_VERSION = "14.9";
 
 function getAnalyticsSessionId() {
     const key = 'loofinder-analytics-session-id';
@@ -1003,6 +1045,18 @@ const ratingSummaryInFlight = new Set();
 let facilityListItemMap = new Map();
 let selectedFacilityListItemEl = null;
 let selectedFacilityListItemTimer = null;
+let placeSearchResults = [];
+let placeSearchActiveIndex = -1;
+let placeSearchDebounceTimer = null;
+let placeSearchRequestId = 0;
+let placeSearchPendingController = null;
+let placeSearchLoading = false;
+let placeSearchUiExpanded = false;
+
+const PLACE_SEARCH_DEBOUNCE_MS = 280;
+const PLACE_SEARCH_MIN_QUERY_LENGTH = 2;
+const PLACE_SEARCH_LIMIT = 5;
+const PLACE_SEARCH_TARGET_ZOOM = 15;
 
 const LOAD_DATA_TRIGGER = Object.freeze({
     STARTUP_NOT_SUPPORTED: 'startup_not_supported',
@@ -1039,7 +1093,7 @@ function setSearchAreaButtonState(state) {
     button.classList.toggle('is-current', state === SEARCH_AREA_STATES.CURRENT);
     button.classList.toggle('is-loading', state === SEARCH_AREA_STATES.LOADING);
 
-    if (state === SEARCH_AREA_STATES.HIDDEN) {
+    if (state === SEARCH_AREA_STATES.HIDDEN || state === SEARCH_AREA_STATES.LOADING || state === SEARCH_AREA_STATES.CURRENT) {
         button.style.display = 'none';
         button.disabled = true;
         return;
@@ -1106,6 +1160,354 @@ function getSearchAreaAnalyticsProperties() {
         distance_px: Math.round(snapshot.distancePx),
         zoom_delta: Number(snapshot.zoomDelta.toFixed(2))
     };
+}
+
+function setPlaceSearchStatus(message) {
+    if (!placeSearchStatusEl) {
+        return;
+    }
+    placeSearchStatusEl.textContent = message || '';
+}
+
+function setPlaceSearchExpanded(isExpanded) {
+    if (!placeSearchInputEl) {
+        return;
+    }
+    placeSearchInputEl.setAttribute('aria-expanded', isExpanded ? 'true' : 'false');
+    if (!isExpanded) {
+        placeSearchInputEl.removeAttribute('aria-activedescendant');
+    }
+}
+
+function setPlaceSearchUiExpanded(isExpanded, options = {}) {
+    const { focusInput = false, keepStatus = false } = options;
+    const nextExpanded = Boolean(isExpanded);
+    placeSearchUiExpanded = nextExpanded;
+    const visualExpanded = nextExpanded || !isMobileViewport();
+
+    if (placeSearchContainerEl) {
+        placeSearchContainerEl.classList.toggle('is-expanded', visualExpanded);
+    }
+
+    if (placeSearchToggleEl) {
+        placeSearchToggleEl.setAttribute('aria-expanded', visualExpanded ? 'true' : 'false');
+    }
+
+    if (!nextExpanded) {
+        hidePlaceSearchResults();
+        setPlaceSearchLoading(false);
+        if (!keepStatus) {
+            setPlaceSearchStatus('');
+        }
+        return;
+    }
+
+    if (!keepStatus) {
+        setPlaceSearchStatus('Type at least 2 characters to search.');
+    }
+
+    if (focusInput && placeSearchInputEl) {
+        requestAnimationFrame(() => {
+            placeSearchInputEl.focus();
+        });
+    }
+}
+
+function syncPlaceSearchInputState() {
+    if (!placeSearchContainerEl || !placeSearchInputEl) {
+        return;
+    }
+    placeSearchContainerEl.classList.toggle('has-value', placeSearchInputEl.value.trim().length > 0);
+}
+
+function setPlaceSearchLoading(isLoading) {
+    placeSearchLoading = isLoading;
+    if (placeSearchContainerEl) {
+        placeSearchContainerEl.classList.toggle('is-loading', isLoading);
+    }
+}
+
+function hidePlaceSearchResults() {
+    placeSearchResults = [];
+    placeSearchActiveIndex = -1;
+    if (placeSearchResultsEl) {
+        placeSearchResultsEl.hidden = true;
+        placeSearchResultsEl.innerHTML = '';
+    }
+    setPlaceSearchExpanded(false);
+}
+
+function formatPlaceSearchType(type) {
+    const label = String(type || '').trim();
+    if (!label) {
+        return 'Place';
+    }
+    return label.replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase()).slice(0, 48);
+}
+
+function setPlaceSearchActiveIndex(nextIndex) {
+    if (!placeSearchResults.length || !placeSearchResultsEl || !placeSearchInputEl) {
+        placeSearchActiveIndex = -1;
+        placeSearchInputEl?.removeAttribute('aria-activedescendant');
+        return;
+    }
+
+    const maxIndex = placeSearchResults.length - 1;
+    if (nextIndex > maxIndex) {
+        nextIndex = 0;
+    }
+    if (nextIndex < 0) {
+        nextIndex = maxIndex;
+    }
+    placeSearchActiveIndex = nextIndex;
+
+    const options = placeSearchResultsEl.querySelectorAll('.place-search-option');
+    options.forEach((optionEl, index) => {
+        const isActive = index === placeSearchActiveIndex;
+        optionEl.classList.toggle('is-active', isActive);
+        optionEl.setAttribute('aria-selected', isActive ? 'true' : 'false');
+        if (isActive) {
+            placeSearchInputEl.setAttribute('aria-activedescendant', optionEl.id);
+            optionEl.scrollIntoView({ block: 'nearest' });
+        }
+    });
+}
+
+function renderPlaceSearchResults(results, query) {
+    if (!placeSearchResultsEl) {
+        return;
+    }
+
+    placeSearchResults = Array.isArray(results) ? results : [];
+    placeSearchActiveIndex = -1;
+    placeSearchResultsEl.innerHTML = '';
+
+    if (!placeSearchResults.length) {
+        const emptyEl = document.createElement('div');
+        emptyEl.className = 'place-search-empty';
+        emptyEl.textContent = `No matches for "${query}"`;
+        placeSearchResultsEl.appendChild(emptyEl);
+        placeSearchResultsEl.hidden = false;
+        setPlaceSearchExpanded(true);
+        setPlaceSearchStatus('No matching places found.');
+        return;
+    }
+
+    placeSearchResults.forEach((result, index) => {
+        const optionEl = document.createElement('button');
+        optionEl.type = 'button';
+        optionEl.className = 'place-search-option';
+        optionEl.id = `place-search-option-${index}`;
+        optionEl.setAttribute('role', 'option');
+        optionEl.setAttribute('aria-selected', 'false');
+
+        const nameEl = document.createElement('span');
+        nameEl.className = 'place-search-option-name';
+        nameEl.textContent = String(result.name || 'Unnamed place');
+
+        const metaEl = document.createElement('span');
+        metaEl.className = 'place-search-option-meta';
+        metaEl.textContent = formatPlaceSearchType(result.type);
+
+        optionEl.append(nameEl, metaEl);
+        optionEl.addEventListener('mousedown', (event) => event.preventDefault());
+        optionEl.addEventListener('click', () => {
+            selectPlaceSearchResult(index, 'click');
+        });
+
+        placeSearchResultsEl.appendChild(optionEl);
+    });
+
+    placeSearchResultsEl.hidden = false;
+    setPlaceSearchExpanded(true);
+    setPlaceSearchStatus(`${placeSearchResults.length} places found. Use arrow keys to navigate.`);
+}
+
+function selectPlaceSearchResult(index, source) {
+    const result = placeSearchResults[index];
+    if (!result) {
+        return;
+    }
+
+    const lat = Number(result.lat);
+    const lon = Number(result.lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+        return;
+    }
+
+    if (placeSearchInputEl) {
+        placeSearchInputEl.value = String(result.name || '');
+    }
+    syncPlaceSearchInputState();
+    hidePlaceSearchResults();
+
+    const targetZoom = Math.max(map.getZoom(), PLACE_SEARCH_TARGET_ZOOM);
+    map.once('moveend', () => {
+        loadDataForCurrentBounds(LOAD_DATA_TRIGGER.SEARCH_THIS_AREA);
+    });
+    map.flyTo([lat, lon], targetZoom, { animate: true, duration: 0.55 });
+
+    trackEvent('address_search_selected', {
+        source,
+        result_index: index,
+        result_type: String(result.type || 'place')
+    });
+    setPlaceSearchStatus(`Showing toilets near ${String(result.name || 'selected place')}.`);
+    setPlaceSearchUiExpanded(false, { keepStatus: true });
+}
+
+async function performPlaceSearch(query) {
+    const normalized = String(query || '').trim();
+    if (normalized.length < PLACE_SEARCH_MIN_QUERY_LENGTH) {
+        setPlaceSearchLoading(false);
+        hidePlaceSearchResults();
+        return;
+    }
+
+    const requestId = ++placeSearchRequestId;
+
+    if (placeSearchPendingController) {
+        placeSearchPendingController.abort();
+        placeSearchPendingController = null;
+    }
+
+    let signal;
+    if (typeof AbortController !== 'undefined') {
+        placeSearchPendingController = new AbortController();
+        signal = placeSearchPendingController.signal;
+    }
+
+    setPlaceSearchLoading(true);
+    const results = await searchPlaces(normalized, PLACE_SEARCH_LIMIT, signal);
+    if (requestId !== placeSearchRequestId) {
+        return;
+    }
+
+    setPlaceSearchLoading(false);
+    placeSearchPendingController = null;
+    renderPlaceSearchResults(results, normalized);
+    trackEvent('address_search_queried', {
+        query_length: normalized.length,
+        result_count: results.length
+    });
+}
+
+function handlePlaceSearchInput() {
+    syncPlaceSearchInputState();
+
+    if (placeSearchDebounceTimer) {
+        clearTimeout(placeSearchDebounceTimer);
+    }
+
+    const query = placeSearchInputEl ? placeSearchInputEl.value.trim() : '';
+    if (query.length < PLACE_SEARCH_MIN_QUERY_LENGTH) {
+        placeSearchRequestId += 1;
+        if (placeSearchPendingController) {
+            placeSearchPendingController.abort();
+            placeSearchPendingController = null;
+        }
+        setPlaceSearchLoading(false);
+        hidePlaceSearchResults();
+        setPlaceSearchStatus('');
+        return;
+    }
+
+    placeSearchDebounceTimer = setTimeout(() => {
+        performPlaceSearch(query);
+    }, PLACE_SEARCH_DEBOUNCE_MS);
+}
+
+function handlePlaceSearchKeydown(event) {
+    if (event.key === 'ArrowDown') {
+        if (!placeSearchResults.length) {
+            return;
+        }
+        event.preventDefault();
+        setPlaceSearchActiveIndex(placeSearchActiveIndex + 1);
+        return;
+    }
+
+    if (event.key === 'ArrowUp') {
+        if (!placeSearchResults.length) {
+            return;
+        }
+        event.preventDefault();
+        setPlaceSearchActiveIndex(placeSearchActiveIndex - 1);
+        return;
+    }
+
+    if (event.key === 'Enter') {
+        if (placeSearchActiveIndex >= 0 && placeSearchActiveIndex < placeSearchResults.length) {
+            event.preventDefault();
+            selectPlaceSearchResult(placeSearchActiveIndex, 'keyboard');
+            return;
+        }
+
+        const query = placeSearchInputEl ? placeSearchInputEl.value.trim() : '';
+        if (query.length >= PLACE_SEARCH_MIN_QUERY_LENGTH) {
+            event.preventDefault();
+            performPlaceSearch(query);
+        }
+        return;
+    }
+
+    if (event.key === 'Escape') {
+        setPlaceSearchUiExpanded(false);
+    }
+}
+
+function initPlaceSearch() {
+    if (!placeSearchContainerEl || !placeSearchToggleEl || !placeSearchInputEl || !placeSearchResultsEl || !placeSearchClearEl) {
+        return;
+    }
+
+    setPlaceSearchUiExpanded(false, { keepStatus: true });
+    syncPlaceSearchInputState();
+
+    placeSearchToggleEl.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+
+        if (!isMobileViewport()) {
+            placeSearchInputEl.focus();
+            return;
+        }
+
+        const nextExpanded = !placeSearchUiExpanded;
+        setPlaceSearchUiExpanded(nextExpanded, { focusInput: nextExpanded });
+    });
+
+    window.addEventListener('resize', () => {
+        if (isMobileViewport()) {
+            setPlaceSearchUiExpanded(false, { keepStatus: true });
+            return;
+        }
+        setPlaceSearchUiExpanded(false, { keepStatus: true });
+    });
+
+    placeSearchInputEl.addEventListener('input', handlePlaceSearchInput);
+    placeSearchInputEl.addEventListener('keydown', handlePlaceSearchKeydown);
+    placeSearchInputEl.addEventListener('focus', () => {
+        if (!placeSearchResultsEl.hidden && placeSearchResults.length) {
+            setPlaceSearchExpanded(true);
+        }
+    });
+
+    placeSearchClearEl.addEventListener('click', () => {
+        placeSearchRequestId += 1;
+        if (placeSearchInputEl) {
+            placeSearchInputEl.value = '';
+            placeSearchInputEl.focus();
+        }
+        if (placeSearchPendingController) {
+            placeSearchPendingController.abort();
+            placeSearchPendingController = null;
+        }
+        setPlaceSearchLoading(false);
+        syncPlaceSearchInputState();
+        hidePlaceSearchResults();
+        setPlaceSearchStatus('Place search cleared.');
+    });
 }
 
 function shouldAttemptBackendRequest() {
@@ -1264,6 +1666,7 @@ async function getResolvedNameFromBackend(facilityId) {
 // API is redeployed.
 let _bulkFacilitiesEndpointAvailable = true;
 let _geocodeProxyEndpointAvailable = true;
+let _geocodeSearchProxyEndpointAvailable = true;
 
 // Bulk fetch resolved names. Returns Map<string, string> for hits only.
 // Falls back to per-id lookups if the bulk endpoint isn't deployed.
@@ -1359,6 +1762,7 @@ async function flushFacilitySaves() {
 // fall back to calling Nominatim directly so older API deployments still
 // resolve names.
 let _lastDirectNominatimCall = 0;
+let _lastDirectNominatimSearchCall = 0;
 
 async function _geocodeDirectFromNominatim(lat, lon) {
     const now = Date.now();
@@ -1381,6 +1785,113 @@ async function _geocodeDirectFromNominatim(lat, lon) {
         console.error('Direct Nominatim error:', e);
         return null;
     }
+}
+
+function _normalizeDirectPlaceSearchResult(item) {
+    const lat = Number(item && item.lat);
+    const lon = Number(item && item.lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon) || !isWithinAustralia(lat, lon)) {
+        return null;
+    }
+
+    const name = String((item && item.display_name) || '').trim();
+    if (!name) {
+        return null;
+    }
+
+    return {
+        name: name.slice(0, 220),
+        lat: Number(lat.toFixed(6)),
+        lon: Number(lon.toFixed(6)),
+        type: String((item && item.type) || 'place').slice(0, 40)
+    };
+}
+
+async function _searchPlacesDirectFromNominatim(query, limit, signal) {
+    const now = Date.now();
+    const wait = Math.max(0, 1000 - (now - _lastDirectNominatimSearchCall));
+    if (wait > 0) {
+        await new Promise((resolve) => setTimeout(resolve, wait));
+    }
+    _lastDirectNominatimSearchCall = Date.now();
+
+    const params = new URLSearchParams({
+        q: query,
+        format: 'jsonv2',
+        addressdetails: '1',
+        countrycodes: 'au',
+        limit: String(limit)
+    });
+
+    try {
+        const res = await fetch(`https://nominatim.openstreetmap.org/search?${params.toString()}`, { signal });
+        if (!res.ok) {
+            return [];
+        }
+
+        const data = await res.json();
+        if (!Array.isArray(data)) {
+            return [];
+        }
+
+        const normalized = [];
+        for (const item of data) {
+            const mapped = _normalizeDirectPlaceSearchResult(item);
+            if (mapped) {
+                normalized.push(mapped);
+            }
+            if (normalized.length >= limit) {
+                break;
+            }
+        }
+        return normalized;
+    } catch (error) {
+        if (error && error.name === 'AbortError') {
+            return [];
+        }
+        console.error('Direct place search error:', error);
+        return [];
+    }
+}
+
+async function searchPlaces(query, limit = PLACE_SEARCH_LIMIT, signal) {
+    const normalizedQuery = String(query || '').trim();
+    if (normalizedQuery.length < PLACE_SEARCH_MIN_QUERY_LENGTH) {
+        return [];
+    }
+
+    const safeLimit = Math.max(1, Math.min(Number(limit) || PLACE_SEARCH_LIMIT, 10));
+
+    if (_geocodeSearchProxyEndpointAvailable && shouldAttemptBackendRequest()) {
+        const url = `${BACKEND_URL}/api/geocode/search?q=${encodeURIComponent(normalizedQuery)}&limit=${safeLimit}`;
+        try {
+            const response = await fetch(url, { signal });
+            if (response.status === 404) {
+                _geocodeSearchProxyEndpointAvailable = false;
+            } else if (response.ok) {
+                markBackendRecovered('geocode search');
+                const payload = await response.json();
+                const results = Array.isArray(payload && payload.results) ? payload.results : [];
+                return results.filter((item) => {
+                    const lat = Number(item && item.lat);
+                    const lon = Number(item && item.lon);
+                    return Number.isFinite(lat) && Number.isFinite(lon) && isWithinAustralia(lat, lon);
+                }).slice(0, safeLimit);
+            } else {
+                if (response.status >= 500) {
+                    markBackendUnavailable('geocode search');
+                }
+                return [];
+            }
+        } catch (error) {
+            if (error && error.name === 'AbortError') {
+                return [];
+            }
+            markBackendUnavailable('geocode search');
+        }
+    }
+
+    return _searchPlacesDirectFromNominatim(normalizedQuery, safeLimit, signal);
 }
 
 async function geocodeAddress(lat, lon) {
@@ -1443,12 +1954,15 @@ async function getDisplayName(facilityId, lat, lon) {
 }
 
 function toggleSidebar() {
-    document.querySelector('.sidebar').classList.toggle('collapsed');
+    const sidebar = document.querySelector('.sidebar');
+    sidebar.classList.toggle('collapsed');
+    document.body.classList.toggle('mobile-sheet-expanded', !sidebar.classList.contains('collapsed'));
 }
 
 function collapseSidebar() {
     if (window.innerWidth <= 768) {
         document.querySelector('.sidebar').classList.add('collapsed');
+        document.body.classList.remove('mobile-sheet-expanded');
     }
 }
 
@@ -1732,7 +2246,7 @@ async function loadDataForCurrentBounds(trigger) {
             lng: requestedCenter.lng,
             zoom: requestedZoom
         };
-        updateSearchAreaButtonStateFromViewport();
+        setSearchAreaButtonState(SEARCH_AREA_STATES.CURRENT);
 
         resolveNamesInBackground(loadToken, allToiletData.features).catch((error) => {
             console.error("Background name resolution failed:", error);
@@ -1745,6 +2259,9 @@ async function loadDataForCurrentBounds(trigger) {
         setSearchAreaButtonState(SEARCH_AREA_STATES.STALE);
     } finally { 
         document.getElementById('loader').style.display = 'none'; 
+        if (loadToken === currentLoadToken && searchAreaButtonState === SEARCH_AREA_STATES.LOADING) {
+            setSearchAreaButtonState(SEARCH_AREA_STATES.STALE);
+        }
     }
 }
 
@@ -2851,6 +3368,7 @@ window.addEventListener('unhandledrejection', (event) => {
 map.whenReady(async () => {
     trackEvent('app_loaded', { hostname: window.location.hostname });
     addCompassControl();
+    initPlaceSearch();
     await applyApproximateCityFallback();
     initializeWithUserLocation();
 });
@@ -2956,6 +3474,7 @@ handleElement.addEventListener('touchmove', (e) => {
     // THE FIX: The moment you drag UP, reveal the list so the card can physically stretch
     if (wasCollapsed && deltaY < 0) {
         sidebarElement.classList.remove('collapsed');
+        document.body.classList.add('mobile-sheet-expanded');
     }
 
     let newHeight = startHeight - deltaY;
@@ -2983,14 +3502,18 @@ handleElement.addEventListener('touchend', () => {
     // Snap logic
     if (deltaY < -40) {
         sidebarElement.classList.remove('collapsed'); // Snap open
+        document.body.classList.add('mobile-sheet-expanded');
     } else if (deltaY > 40) {
         sidebarElement.classList.add('collapsed'); // Snap closed
+        document.body.classList.remove('mobile-sheet-expanded');
     } else {
         // If they barely dragged it, snap it back to wherever it started
         if (wasCollapsed) {
             sidebarElement.classList.add('collapsed');
+            document.body.classList.remove('mobile-sheet-expanded');
         } else {
             sidebarElement.classList.remove('collapsed');
+            document.body.classList.add('mobile-sheet-expanded');
         }
     }
 });
