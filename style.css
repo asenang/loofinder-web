@@ -366,9 +366,9 @@ button.btn-report, .btn-report { background: #fff4e5; color: #92400e !important;
 .place-search {
     position: absolute;
     top: 20px;
-    left: 50%;
+    left: calc(380px + ((100vw - 380px - 88px) / 2));
     transform: translateX(-50%);
-    width: min(460px, calc(100vw - 420px));
+    width: min(460px, max(260px, calc(100vw - 500px)));
     z-index: 2200;
     display: flex;
     flex-direction: column;
@@ -402,7 +402,7 @@ button.btn-report, .btn-report { background: #fff4e5; color: #92400e !important;
     outline-offset: 2px;
 }
 .place-search.is-expanded {
-    width: min(460px, calc(100vw - 420px));
+    width: min(460px, max(260px, calc(100vw - 500px)));
     align-items: stretch;
 }
 .place-search-field {
@@ -522,7 +522,7 @@ button.btn-report, .btn-report { background: #fff4e5; color: #92400e !important;
     display: none;
     position: absolute;
     top: 74px;
-    left: 50%;
+    left: calc(380px + ((100vw - 380px - 88px) / 2));
     transform: translateX(-50%);
     z-index: 2000;
     background: white;
@@ -587,6 +587,11 @@ button.btn-report, .btn-report { background: #fff4e5; color: #92400e !important;
 }
 .theme-toggle .material-symbols-outlined { font-size: 18px; }
 .theme-toggle:hover { transform: translateY(-1px); }
+.theme-dark .theme-toggle {
+    border-color: #334155;
+    background: rgba(15, 23, 42, 0.96);
+    color: #e2e8f0;
+}
 
 .loofinder-compass-control {
     display: none;
