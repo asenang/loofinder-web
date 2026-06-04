@@ -970,7 +970,7 @@ syncSupportMenuForViewport();
 // Environment Configuration
 const IS_LOCAL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname === '';
 const BACKEND_URL = IS_LOCAL ? "http://localhost:8000" : "https://loofinder-api.onrender.com";
-const APP_VERSION = "14.9";
+const APP_VERSION = "14.10";
 
 function getAnalyticsSessionId() {
     const key = 'loofinder-analytics-session-id';
@@ -1872,11 +1872,19 @@ async function searchPlaces(query, limit = PLACE_SEARCH_LIMIT, signal) {
                 markBackendRecovered('geocode search');
                 const payload = await response.json();
                 const results = Array.isArray(payload && payload.results) ? payload.results : [];
-                return results.filter((item) => {
+                const validResults = results.filter((item) => {
                     const lat = Number(item && item.lat);
                     const lon = Number(item && item.lon);
                     return Number.isFinite(lat) && Number.isFinite(lon) && isWithinAustralia(lat, lon);
                 }).slice(0, safeLimit);
+
+                if (validResults.length > 0) {
+                    return validResults;
+                }
+                // Backend returned 200 with zero results — could be a genuine
+                // empty match, but is also the symptom of Nominatim blocking
+                // the backend's outbound calls. Fall through to direct
+                // Nominatim so the user still gets results in either case.
             } else {
                 if (response.status >= 500) {
                     markBackendUnavailable('geocode search');
