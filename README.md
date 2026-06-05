@@ -1,5 +1,11 @@
 # LooFinder Web
 
+## Hosting
+
+Live site: **https://loofinder.app** — served by **GitHub Pages** (custom domain via the `CNAME` file). Pushes to `main` deploy automatically.
+
+The backend API runs at `https://loofinder-api.onrender.com` (Render + Neon Postgres). See the sibling `loofinder-api` repo.
+
 ## Mobile Compass QA Checklist
 
 Run this checklist on a real phone after compass or map-state changes.
