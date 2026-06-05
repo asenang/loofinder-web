@@ -930,6 +930,11 @@ document.addEventListener('keydown', (event) => {
     }
 
     if (event.key === 'Escape') {
+        const tipPromptEl = document.getElementById('tip-prompt');
+        if (tipPromptEl && !tipPromptEl.hidden && tipPromptEl.classList.contains('is-visible')) {
+            dismissTipPrompt('escape');
+            return;
+        }
         setSupportMenuOpen(false);
         setSupportDesktopMenuOpen(false);
         if (placeSearchUiExpanded) {
@@ -970,7 +975,29 @@ syncSupportMenuForViewport();
 // Environment Configuration
 const IS_LOCAL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname === '';
 const BACKEND_URL = IS_LOCAL ? "http://localhost:8000" : "https://loofinder-api.onrender.com";
-const APP_VERSION = "14.10";
+const APP_VERSION = "14.11";
+
+// --- Tip Prompt config ---------------------------------------------------
+// Show the BuyMeACoffee nudge after the user has clearly gotten value (a
+// directions click). Frequency rules below are tuned to feel grateful, not
+// nag-y. Tuning knobs live here.
+const TIP_PROMPT_KEYS = Object.freeze({
+    directionsCount: 'loofinder-directions-count',
+    dismissedAt: 'loofinder-tip-prompt-dismissed-at',
+    tippedAt: 'loofinder-tip-prompt-tipped-at',
+    shownThisSession: 'loofinder-tip-prompt-shown-session',
+});
+// Don't ask until the user has gotten this many directions — they have to
+// experience the win a few times before we ask for anything back.
+const TIP_PROMPT_MIN_DIRECTIONS = 3;
+// Cooldown after a "maybe later" / close: don't show again for two weeks.
+const TIP_PROMPT_DISMISS_COOLDOWN_MS = 14 * 24 * 60 * 60 * 1000;
+// Cooldown after a tip CTA click: assume they tipped (or strongly considered
+// it) and give them a long break.
+const TIP_PROMPT_TIPPED_COOLDOWN_MS = 60 * 24 * 60 * 60 * 1000;
+// Delay before showing so the maps app/tab opens first and the prompt
+// arrives as the user is returning to LooFinder, not while they're mid-tap.
+const TIP_PROMPT_SHOW_DELAY_MS = 1500;
 
 function getAnalyticsSessionId() {
     const key = 'loofinder-analytics-session-id';
@@ -1600,6 +1627,7 @@ document.addEventListener('click', (event) => {
         openIssueReportModal(facilityId, name);
     } else if (action === 'directions') {
         trackEvent('directions_clicked', { source: 'popup', facility_id: String(facilityId) });
+        maybeShowTipPromptAfterDirections('popup');
     }
 });
 
@@ -2007,6 +2035,118 @@ function showToast(message, type = 'success') {
     setTimeout(() => toast.remove(), 3500);
 }
 
+// --- Tip Prompt ---
+// Shown after a `directions_clicked` event when the user has earned the
+// right to be asked: ≥ N lifetime directions, not already shown this
+// session, and outside the dismiss/tipped cooldowns.
+
+let _tipPromptShownThisSession = sessionStorage.getItem(TIP_PROMPT_KEYS.shownThisSession) === '1';
+let _tipPromptScheduledTimer = null;
+let _tipPromptInitialized = false;
+
+function readTipPromptNumber(key) {
+    const raw = localStorage.getItem(key);
+    if (!raw) return 0;
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function incrementDirectionsCount() {
+    const next = readTipPromptNumber(TIP_PROMPT_KEYS.directionsCount) + 1;
+    try {
+        localStorage.setItem(TIP_PROMPT_KEYS.directionsCount, String(next));
+    } catch (_) { /* private mode / quota */ }
+    return next;
+}
+
+function isTipPromptInCooldown(now) {
+    const dismissedAt = readTipPromptNumber(TIP_PROMPT_KEYS.dismissedAt);
+    if (dismissedAt && now - dismissedAt < TIP_PROMPT_DISMISS_COOLDOWN_MS) {
+        return true;
+    }
+    const tippedAt = readTipPromptNumber(TIP_PROMPT_KEYS.tippedAt);
+    if (tippedAt && now - tippedAt < TIP_PROMPT_TIPPED_COOLDOWN_MS) {
+        return true;
+    }
+    return false;
+}
+
+function shouldShowTipPrompt() {
+    if (_tipPromptShownThisSession) return false;
+    const directionsCount = readTipPromptNumber(TIP_PROMPT_KEYS.directionsCount);
+    if (directionsCount < TIP_PROMPT_MIN_DIRECTIONS) return false;
+    if (isTipPromptInCooldown(Date.now())) return false;
+    return true;
+}
+
+function ensureTipPromptHandlersBound() {
+    if (_tipPromptInitialized) return;
+    const closeBtn = document.getElementById('tipPromptClose');
+    const laterBtn = document.getElementById('tipPromptLater');
+    const ctaLink = document.getElementById('tipPromptCta');
+    if (!closeBtn || !laterBtn || !ctaLink) return;
+
+    closeBtn.addEventListener('click', () => dismissTipPrompt('close'));
+    laterBtn.addEventListener('click', () => dismissTipPrompt('later'));
+    ctaLink.addEventListener('click', () => {
+        try {
+            localStorage.setItem(TIP_PROMPT_KEYS.tippedAt, String(Date.now()));
+        } catch (_) { /* ignore */ }
+        trackEvent('tip_prompt_clicked');
+        // Hide after a short delay so the new-tab nav isn't visually jarring.
+        setTimeout(() => hideTipPrompt(), 400);
+    });
+
+    _tipPromptInitialized = true;
+}
+
+function showTipPrompt(source) {
+    const promptEl = document.getElementById('tip-prompt');
+    if (!promptEl) return;
+    ensureTipPromptHandlersBound();
+
+    promptEl.hidden = false;
+    // Force a paint before adding the visible class so the transition runs.
+    requestAnimationFrame(() => promptEl.classList.add('is-visible'));
+
+    _tipPromptShownThisSession = true;
+    try {
+        sessionStorage.setItem(TIP_PROMPT_KEYS.shownThisSession, '1');
+    } catch (_) { /* ignore */ }
+    trackEvent('tip_prompt_shown', { source: String(source || 'directions') });
+}
+
+function hideTipPrompt() {
+    const promptEl = document.getElementById('tip-prompt');
+    if (!promptEl) return;
+    promptEl.classList.remove('is-visible');
+    setTimeout(() => { promptEl.hidden = true; }, 400);
+}
+
+function dismissTipPrompt(reason) {
+    try {
+        localStorage.setItem(TIP_PROMPT_KEYS.dismissedAt, String(Date.now()));
+    } catch (_) { /* ignore */ }
+    trackEvent('tip_prompt_dismissed', { reason: String(reason || 'unknown') });
+    hideTipPrompt();
+}
+
+function maybeShowTipPromptAfterDirections(source) {
+    incrementDirectionsCount();
+    if (!shouldShowTipPrompt()) return;
+
+    if (_tipPromptScheduledTimer) {
+        clearTimeout(_tipPromptScheduledTimer);
+    }
+    _tipPromptScheduledTimer = setTimeout(() => {
+        _tipPromptScheduledTimer = null;
+        // Re-check in case visibility / session state changed during the delay.
+        if (shouldShowTipPrompt()) {
+            showTipPrompt(source);
+        }
+    }, TIP_PROMPT_SHOW_DELAY_MS);
+}
+
 async function fetchOverpassJson(query) {
     let lastError = null;
 
@@ -2401,6 +2541,7 @@ async function renderMapPoints() {
         dirLink.addEventListener('click', (e) => {
             e.stopPropagation();
             trackEvent('directions_clicked', { source: 'list', facility_id: String(facilityId) });
+            maybeShowTipPromptAfterDirections('list');
         });
         const rateBtn = document.createElement('button');
         rateBtn.type = 'button';
