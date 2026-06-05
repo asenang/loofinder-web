@@ -256,9 +256,24 @@
         </div>
     </div>
 
+    <div id="tip-prompt" class="tip-prompt" role="dialog" aria-modal="false" aria-labelledby="tipPromptTitle" aria-describedby="tipPromptBody" hidden>
+        <button type="button" class="tip-prompt-close" id="tipPromptClose" aria-label="Dismiss tip prompt">
+            <span class="material-symbols-outlined" aria-hidden="true">close</span>
+        </button>
+        <div class="tip-prompt-emoji" aria-hidden="true">🧻</div>
+        <div class="tip-prompt-content">
+            <div class="tip-prompt-title" id="tipPromptTitle">Found your loo?</div>
+            <p class="tip-prompt-body" id="tipPromptBody">LooFinder is free because public toilets should be — but Render bills aren't.</p>
+            <div class="tip-prompt-actions">
+                <a id="tipPromptCta" class="tip-prompt-cta" href="https://www.buymeacoffee.com/loofinder" target="_blank" rel="noopener noreferrer">Tip $3 🧻</a>
+                <button type="button" class="tip-prompt-later" id="tipPromptLater">Maybe later</button>
+            </div>
+        </div>
+    </div>
+
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://unpkg.com/leaflet-rotate@0.2.8/dist/leaflet-rotate.js"></script>
     <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
-    <script src="app.js?v=15.5"></script>
+    <script src="app.js?v=15.7"></script>
 </body>
 </html>
