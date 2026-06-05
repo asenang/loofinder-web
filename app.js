@@ -975,7 +975,7 @@ syncSupportMenuForViewport();
 // Environment Configuration
 const IS_LOCAL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname === '';
 const BACKEND_URL = IS_LOCAL ? "http://localhost:8000" : "https://loofinder-api.onrender.com";
-const APP_VERSION = "14.11";
+const APP_VERSION = "15.7";
 
 // --- Tip Prompt config ---------------------------------------------------
 // Show the BuyMeACoffee nudge after the user has clearly gotten value (a
@@ -1084,6 +1084,12 @@ const PLACE_SEARCH_DEBOUNCE_MS = 280;
 const PLACE_SEARCH_MIN_QUERY_LENGTH = 2;
 const PLACE_SEARCH_LIMIT = 5;
 const PLACE_SEARCH_TARGET_ZOOM = 15;
+const PLACE_SEARCH_ADDRESS_QUERY_RE = /\d|\b(st|street|rd|road|ave|avenue|blvd|boulevard|dr|drive|ct|court|cres|crescent|ln|lane|way|pde|parade|hwy|highway|terrace|tce|place|pl)\b/i;
+const PLACE_SEARCH_SUBURB_TYPES = new Set(['administrative', 'suburb', 'neighbourhood', 'locality', 'city', 'town', 'village', 'residential']);
+const PLACE_SEARCH_ADDRESS_TYPES = new Set(['house', 'building', 'road', 'street', 'service', 'residential']);
+const PLACE_SEARCH_LOCAL_RESULTS = [
+    { name: 'Melbourne, Victoria, Australia', lat: -37.8136, lon: 144.9631, type: 'city' }
+];
 
 const LOAD_DATA_TRIGGER = Object.freeze({
     STARTUP_NOT_SUPPORTED: 'startup_not_supported',
@@ -1272,6 +1278,103 @@ function formatPlaceSearchType(type) {
     return label.replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase()).slice(0, 48);
 }
 
+function isAddressLikePlaceSearchQuery(query) {
+    return PLACE_SEARCH_ADDRESS_QUERY_RE.test(String(query || ''));
+}
+
+function normalizePlaceSearchQueryAlias(query) {
+    const queryText = String(query || '').trim();
+    const lowerQuery = queryText.toLowerCase();
+    if (lowerQuery.length >= 4 && 'melbourne'.startsWith(lowerQuery)) {
+        return 'melbourne';
+    }
+    return queryText;
+}
+
+function getLocalPlaceSearchResults(query) {
+    const queryText = normalizePlaceSearchQueryAlias(query).toLowerCase();
+    if (!queryText) {
+        return [];
+    }
+    return PLACE_SEARCH_LOCAL_RESULTS.filter((result) => {
+        const primaryName = String(result.name || '').split(',', 1)[0].trim().toLowerCase();
+        return primaryName.startsWith(queryText);
+    });
+}
+
+function getPlaceSearchNameMatchRank(result, query) {
+    const queryText = normalizePlaceSearchQueryAlias(query).toLowerCase();
+    const primaryName = String((result && result.name) || '').split(',', 1)[0].trim().toLowerCase();
+    return queryText && primaryName.startsWith(queryText) ? 0 : 1;
+}
+
+function getPlaceSearchOriginLatLng() {
+    if (hasUserLocationMarker()) {
+        const markerLatLng = userLocationMarker.getLatLng();
+        if (Number.isFinite(markerLatLng.lat) && Number.isFinite(markerLatLng.lng)) {
+            return L.latLng(markerLatLng.lat, markerLatLng.lng);
+        }
+    }
+    if (Number.isFinite(userLat) && Number.isFinite(userLng)) {
+        return L.latLng(userLat, userLng);
+    }
+    return null;
+}
+
+function getPlaceSearchDistanceMeters(result) {
+    const lat = Number(result && result.lat);
+    const lon = Number(result && result.lon);
+    const origin = getPlaceSearchOriginLatLng();
+    if (!origin || !Number.isFinite(lat) || !Number.isFinite(lon)) {
+        return Number.POSITIVE_INFINITY;
+    }
+    return origin.distanceTo(L.latLng(lat, lon));
+}
+
+function getPlaceSearchRank(result, query, originalIndex) {
+    const type = String((result && result.type) || 'place').toLowerCase();
+    const nameRank = getPlaceSearchNameMatchRank(result, query);
+    const distanceMeters = getPlaceSearchDistanceMeters(result);
+    if (isAddressLikePlaceSearchQuery(query)) {
+        if (PLACE_SEARCH_ADDRESS_TYPES.has(type)) {
+            return [0, nameRank, distanceMeters, originalIndex];
+        }
+        if (PLACE_SEARCH_SUBURB_TYPES.has(type)) {
+            return [1, nameRank, distanceMeters, originalIndex];
+        }
+        return [2, nameRank, distanceMeters, originalIndex];
+    }
+    if (PLACE_SEARCH_SUBURB_TYPES.has(type)) {
+        return [0, nameRank, distanceMeters, originalIndex];
+    }
+    if (PLACE_SEARCH_ADDRESS_TYPES.has(type)) {
+        return [1, nameRank, distanceMeters, originalIndex];
+    }
+    return [2, nameRank, distanceMeters, originalIndex];
+}
+
+function rankPlaceSearchResults(results, query) {
+    return results
+        .map((result, index) => ({ result, rank: getPlaceSearchRank(result, query, index) }))
+        .sort((a, b) => a.rank[0] - b.rank[0] || a.rank[1] - b.rank[1] || a.rank[2] - b.rank[2] || a.rank[3] - b.rank[3])
+        .map((entry) => entry.result);
+}
+
+function mergePlaceSearchResults(primaryResults, secondaryResults) {
+    const merged = [];
+    const seen = new Set();
+    for (const result of [...primaryResults, ...secondaryResults]) {
+        const lat = Number(result && result.lat);
+        const lon = Number(result && result.lon);
+        const key = `${String((result && result.name) || '').toLowerCase()}|${Number.isFinite(lat) ? lat.toFixed(4) : ''}|${Number.isFinite(lon) ? lon.toFixed(4) : ''}`;
+        if (!seen.has(key)) {
+            seen.add(key);
+            merged.push(result);
+        }
+    }
+    return merged;
+}
+
 function setPlaceSearchActiveIndex(nextIndex) {
     if (!placeSearchResults.length || !placeSearchResultsEl || !placeSearchInputEl) {
         placeSearchActiveIndex = -1;
@@ -1305,7 +1408,7 @@ function renderPlaceSearchResults(results, query) {
         return;
     }
 
-    placeSearchResults = Array.isArray(results) ? results : [];
+    placeSearchResults = Array.isArray(results) ? rankPlaceSearchResults(results, query) : [];
     placeSearchActiveIndex = -1;
     placeSearchResultsEl.innerHTML = '';
 
@@ -1872,7 +1975,7 @@ async function _searchPlacesDirectFromNominatim(query, limit, signal) {
                 break;
             }
         }
-        return normalized;
+        return rankPlaceSearchResults(normalized, query);
     } catch (error) {
         if (error && error.name === 'AbortError') {
             return [];
@@ -1889,9 +1992,12 @@ async function searchPlaces(query, limit = PLACE_SEARCH_LIMIT, signal) {
     }
 
     const safeLimit = Math.max(1, Math.min(Number(limit) || PLACE_SEARCH_LIMIT, 10));
+    const upstreamQuery = normalizePlaceSearchQueryAlias(normalizedQuery);
+
+    const upstreamLimit = Math.min(10, Math.max(safeLimit * 2, safeLimit));
 
     if (_geocodeSearchProxyEndpointAvailable && shouldAttemptBackendRequest()) {
-        const url = `${BACKEND_URL}/api/geocode/search?q=${encodeURIComponent(normalizedQuery)}&limit=${safeLimit}`;
+        const url = `${BACKEND_URL}/api/geocode/search?q=${encodeURIComponent(upstreamQuery)}&limit=${upstreamLimit}`;
         try {
             const response = await fetch(url, { signal });
             if (response.status === 404) {
@@ -1904,15 +2010,21 @@ async function searchPlaces(query, limit = PLACE_SEARCH_LIMIT, signal) {
                     const lat = Number(item && item.lat);
                     const lon = Number(item && item.lon);
                     return Number.isFinite(lat) && Number.isFinite(lon) && isWithinAustralia(lat, lon);
-                }).slice(0, safeLimit);
+                });
 
-                if (validResults.length > 0) {
-                    return validResults;
+                const rankedFromBackend = rankPlaceSearchResults(
+                    mergePlaceSearchResults(getLocalPlaceSearchResults(normalizedQuery), validResults),
+                    normalizedQuery
+                ).slice(0, safeLimit);
+
+                if (rankedFromBackend.length > 0) {
+                    return rankedFromBackend;
                 }
-                // Backend returned 200 with zero results — could be a genuine
-                // empty match, but is also the symptom of Nominatim blocking
-                // the backend's outbound calls. Fall through to direct
-                // Nominatim so the user still gets results in either case.
+                // Backend returned 200 with zero results AND we have no local
+                // matches for this query — could be a genuine empty match, but
+                // is also the symptom of Nominatim blocking the backend's
+                // outbound calls. Fall through to direct Nominatim so the user
+                // still gets results in either case.
             } else {
                 if (response.status >= 500) {
                     markBackendUnavailable('geocode search');
@@ -1927,7 +2039,8 @@ async function searchPlaces(query, limit = PLACE_SEARCH_LIMIT, signal) {
         }
     }
 
-    return _searchPlacesDirectFromNominatim(normalizedQuery, safeLimit, signal);
+    const directResults = await _searchPlacesDirectFromNominatim(upstreamQuery, upstreamLimit, signal);
+    return rankPlaceSearchResults(mergePlaceSearchResults(getLocalPlaceSearchResults(normalizedQuery), directResults), normalizedQuery).slice(0, safeLimit);
 }
 
 async function geocodeAddress(lat, lon) {
