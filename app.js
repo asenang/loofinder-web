@@ -1018,7 +1018,7 @@ syncSupportMenuForViewport();
 // Environment Configuration
 const IS_LOCAL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname === '';
 const BACKEND_URL = IS_LOCAL ? "http://localhost:8000" : "https://loofinder-api.onrender.com";
-const APP_VERSION = "15.16";
+const APP_VERSION = "15.17";
 
 // --- Tip Prompt config ---------------------------------------------------
 // Show the BuyMeACoffee nudge after the user has clearly gotten value (a
@@ -2612,6 +2612,92 @@ function hideOffListBanner() {
     }
 }
 
+// --- Landmark name inference ---
+// For toilets that don't carry useful tags themselves, look for a named
+// building / shop / tourism / amenity polygon that contains the toilet's
+// lat/lon. Catches cases like "toilet inside Melbourne Central" where
+// OSM tags the *building* with a name but not the toilet.
+
+// Tag-based filter for what counts as a "landmark" worth using as a
+// display name. Excludes generic buildings without distinguishing tags
+// (a random named house isn't useful) and small amenities that aren't
+// destinations in their own right.
+function buildLandmarksOverpassQuery(bounds) {
+    const bbox = `${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()}`;
+    return `
+        [out:json][timeout:15];
+        (
+          way["name"]["shop"~"^(mall|department_store|supermarket)$"](${bbox});
+          way["name"]["tourism"~"^(attraction|museum|gallery|hotel|theme_park|zoo)$"](${bbox});
+          way["name"]["amenity"~"^(marketplace|community_centre|library|townhall|university|college|school|hospital|cinema|theatre|arts_centre)$"](${bbox});
+          way["name"]["leisure"~"^(stadium|sports_centre|park|garden)$"](${bbox});
+          way["name"]["railway"~"^(station)$"](${bbox});
+          way["name"]["building"~"^(train_station|civic|public|retail|commercial|mall)$"](${bbox});
+          relation["name"]["site"](${bbox});
+          relation["name"]["building"](${bbox});
+        );
+        out tags bb;
+    `;
+}
+
+// Sort key: smaller-bbox landmarks first so the most specific name wins
+// (e.g., a food court inside a shopping centre matches before the whole
+// shopping centre).
+function landmarkBboxArea(landmark) {
+    const b = landmark && landmark.bounds;
+    if (!b) return Infinity;
+    return (b.maxlat - b.minlat) * (b.maxlon - b.minlon);
+}
+
+function isPointInsideLandmark(lat, lon, landmark) {
+    const b = landmark && landmark.bounds;
+    if (!b) return false;
+    return lat >= b.minlat && lat <= b.maxlat && lon >= b.minlon && lon <= b.maxlon;
+}
+
+// Max bbox area in degrees^2 we'll trust for containment. Larger than this
+// and we assume it's a sprawling site (whole university campus, a big
+// park) where bbox != polygon would cause too many false positives.
+const LANDMARK_MAX_BBOX_AREA_DEG2 = 0.0001; // ~roughly 1km x 1km at AU latitudes
+
+function attachLandmarkNamesToFeatures(features, landmarkElements) {
+    if (!Array.isArray(landmarkElements) || !landmarkElements.length || !features.length) {
+        return 0;
+    }
+
+    // Index landmarks by bbox-area asc so smaller (more specific) ones win
+    // the containment race for any toilet sitting inside nested landmarks.
+    const usableLandmarks = landmarkElements
+        .filter((el) => el && el.bounds && el.tags && el.tags.name)
+        .filter((el) => landmarkBboxArea(el) <= LANDMARK_MAX_BBOX_AREA_DEG2)
+        .sort((a, b) => landmarkBboxArea(a) - landmarkBboxArea(b));
+
+    if (!usableLandmarks.length) return 0;
+
+    let matched = 0;
+    for (const feature of features) {
+        if (!feature || !feature.properties) continue;
+        const props = feature.properties;
+
+        // Already has a tag-based name from pickTagBasedName, or already
+        // landed in nameCache via a previous fetch — don't overwrite.
+        if (nameCache[props.id]) continue;
+
+        const lat = props.lat;
+        const lon = props.lon;
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+
+        const match = usableLandmarks.find((landmark) => isPointInsideLandmark(lat, lon, landmark));
+        if (match) {
+            const name = String(match.tags.name).trim().slice(0, 220);
+            props.Name = name;
+            nameCache[props.id] = name;
+            matched += 1;
+        }
+    }
+    return matched;
+}
+
 // --- Data Fetching (Comprehensive Detection) ---
 async function loadDataForCurrentBounds(trigger) {
     if (!ALLOWED_LOAD_DATA_TRIGGERS.has(trigger)) {
@@ -2638,6 +2724,15 @@ async function loadDataForCurrentBounds(trigger) {
             out center;
         `;
 
+        // Fetch named landmarks in parallel with toilets so the round-trip
+        // overhead is one network wait, not two. Landmarks failing is fine —
+        // we just lose the building-name enrichment for this fetch.
+        const landmarksQuery = buildLandmarksOverpassQuery(bounds);
+        const landmarksPromise = fetchOverpassJson(landmarksQuery).catch((err) => {
+            console.warn("Landmark Overpass query failed (non-fatal):", err);
+            return null;
+        });
+
         let data = null;
         try {
             data = await fetchOverpassJson(query);
@@ -2661,6 +2756,19 @@ async function loadDataForCurrentBounds(trigger) {
         }
 
         allToiletData.features = dedupeFeatures(elementsToFeatures(data.elements || []));
+
+        // Wait for landmarks (already in-flight); apply names BEFORE the
+        // first render so users see "Melbourne Central" immediately instead
+        // of "Public Toilet" -> name swap.
+        const landmarksData = await landmarksPromise;
+        if (loadToken !== currentLoadToken) return;
+        if (landmarksData && Array.isArray(landmarksData.elements)) {
+            const matched = attachLandmarkNamesToFeatures(allToiletData.features, landmarksData.elements);
+            if (matched > 0) {
+                trackEvent('landmark_names_attached', { count: matched });
+            }
+        }
+
         await renderMapPoints();
 
         lastLoadedViewport = {
