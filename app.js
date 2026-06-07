@@ -1018,7 +1018,7 @@ syncSupportMenuForViewport();
 // Environment Configuration
 const IS_LOCAL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname === '';
 const BACKEND_URL = IS_LOCAL ? "http://localhost:8000" : "https://loofinder-api.onrender.com";
-const APP_VERSION = "15.13";
+const APP_VERSION = "15.14";
 
 // --- Tip Prompt config ---------------------------------------------------
 // Show the BuyMeACoffee nudge after the user has clearly gotten value (a
@@ -2419,7 +2419,19 @@ async function resolveNamesInBackground(loadToken, features) {
         }
     }
 
-    // Phase 2: geocode misses serially (Nominatim 1 req/sec policy) and
+    // Sort by distance from the user so the Nearest 5 — which is what the
+    // user actually sees in the sidebar — resolve first. The serial 1/sec
+    // throttle means an unsorted loop can leave the visible top of the list
+    // showing "Public Toilet" for a long time while the geocoder works
+    // through facilities the user can't even see. `dist` is set on visible
+    // features by renderMapPoints; filtered-out features fall to the end.
+    needsGeocoding.sort((a, b) => {
+        const da = (a.properties && Number.isFinite(a.properties.dist)) ? a.properties.dist : Infinity;
+        const db = (b.properties && Number.isFinite(b.properties.dist)) ? b.properties.dist : Infinity;
+        return da - db;
+    });
+
+    // Phase 2: geocode misses serially (upstream rate-limit policy) and
     // queue saves via the buffered bulk-save path.
     for (const feature of needsGeocoding) {
         if (loadToken !== currentLoadToken) return;
