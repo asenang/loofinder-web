@@ -1018,7 +1018,7 @@ syncSupportMenuForViewport();
 // Environment Configuration
 const IS_LOCAL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname === '';
 const BACKEND_URL = IS_LOCAL ? "http://localhost:8000" : "https://loofinder-api.onrender.com";
-const APP_VERSION = "15.15";
+const APP_VERSION = "15.16";
 
 // --- Tip Prompt config ---------------------------------------------------
 // Show the BuyMeACoffee nudge after the user has clearly gotten value (a
@@ -2331,6 +2331,40 @@ function dedupeFeatures(features) {
     return Array.from(byId.values());
 }
 
+// Values that mean "this is a toilet" not "this is a landmark" — filter
+// them out when picking a tag-derived name so we don't end up calling a
+// nameless loo "Toilets".
+const GENERIC_TAG_NAME_RE = /^(public\s+)?(toilet|toilets|loo|loos|restroom|restrooms|washroom|washrooms|wc|w\.c\.|bathroom|bathrooms|dunny)$/i;
+
+// Operator values that identify the managing council/authority rather than
+// a landmark — useless as a display name ("City of Melbourne" doesn't tell
+// the user where the toilet is).
+const GENERIC_OPERATOR_RE = /^(city of\b|shire of\b|town of\b|borough of\b|district of\b|county of\b)|(\bcouncil\b|\bauthority\b|\bgovernment\b)/i;
+
+function pickTagBasedName(tags) {
+    // Priority order from most specific to least:
+    //   1. name              — toilet's own name (rare but most accurate)
+    //   2. addr:housename    — landmark / building name the toilet is at
+    //   3. operator          — venue running it, filtered to skip generic
+    //                          "City of X" / "Council" type values
+    const candidates = [
+        tags.name,
+        tags["addr:housename"],
+    ];
+    for (const candidate of candidates) {
+        if (!candidate) continue;
+        const trimmed = String(candidate).trim();
+        if (trimmed && !GENERIC_TAG_NAME_RE.test(trimmed)) {
+            return trimmed.slice(0, 220);
+        }
+    }
+    const operator = tags.operator ? String(tags.operator).trim() : "";
+    if (operator && !GENERIC_TAG_NAME_RE.test(operator) && !GENERIC_OPERATOR_RE.test(operator)) {
+        return operator.slice(0, 220);
+    }
+    return null;
+}
+
 function elementsToFeatures(elements) {
     return elements
         .map((el) => {
@@ -2356,11 +2390,22 @@ function elementsToFeatures(elements) {
             const openingHours = tags.opening_hours || null;
             const access = (tags.access || "").toLowerCase();
 
+            // Free win: if the OSM tags already give us a meaningful name
+            // (e.g. addr:housename="Melbourne Central"), use that directly
+            // and skip the reverse-geocoding queue entirely. Seed nameCache
+            // so resolveNamesInBackground doesn't queue this feature in
+            // Phase 2's 1/sec serial loop.
+            const tagBasedName = pickTagBasedName(tags);
+            const initialName = tagBasedName || "Public Toilet";
+            if (tagBasedName) {
+                nameCache[featureId] = tagBasedName;
+            }
+
             return {
                 type: "Feature",
                 properties: {
                     id: featureId,
-                    Name: "Public Toilet",
+                    Name: initialName,
                     lat,
                     lon,
                     Accessible: accessible,
