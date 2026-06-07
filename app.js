@@ -1018,7 +1018,7 @@ syncSupportMenuForViewport();
 // Environment Configuration
 const IS_LOCAL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname === '';
 const BACKEND_URL = IS_LOCAL ? "http://localhost:8000" : "https://loofinder-api.onrender.com";
-const APP_VERSION = "15.14";
+const APP_VERSION = "15.15";
 
 // --- Tip Prompt config ---------------------------------------------------
 // Show the BuyMeACoffee nudge after the user has clearly gotten value (a
@@ -2653,7 +2653,15 @@ async function renderMapPoints() {
     // re-applies the class to the new node rather than the old detached one.
     clearFacilityListItemHighlight();
     
-    const referencePoint = userLocationMarker ? userLocationMarker.getLatLng() : map.getCenter();
+    // Reference point for the Nearest 5 distance sort and list display.
+    // Always use map center, not the user marker — this matches Google
+    // Maps behaviour: pan to a different suburb and the "near here" list
+    // adapts to where you're looking, not where you physically are. When
+    // the map IS centered on the user (the default), map-center ~= user
+    // location, so the behaviour is identical for the common case.
+    // "Find Nearest to Me" snaps the map back to the user, which then
+    // re-sorts the list around them.
+    const referencePoint = map.getCenter();
 
     let displayFeatures = allToiletData.features.filter(f => {
         const p = f.properties;
