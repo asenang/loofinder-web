@@ -535,6 +535,49 @@ function recenterMapToUserLocation() {
     return true;
 }
 
+// Zoom level the "Find Nearest to Me" button snaps to. ~250m radius around
+// the user — small enough to feel local, large enough to catch a few loos
+// in most populated areas. Matches the original pre-refactor behaviour.
+const FIND_NEAREST_ZOOM = 15;
+
+// "Find Nearest to Me" sidebar button handler. Two paths:
+//   - We already have the user's location: fly to it at a known zoom and
+//     refetch the nearby loos so the Nearest 5 updates to reflect where
+//     they are now.
+//   - We don't (permission denied or never requested): ask for geolocation,
+//     then fly there. Refetch is handled by the existing initializeWithUserLocation
+//     pipeline so we don't double-fetch.
+// Replaces a `findNearest` function that was deleted in commit ed95e21 but
+// never updated in the HTML; the onclick has been broken since then.
+function findNearest() {
+    trackEvent('find_nearest_clicked', {
+        had_user_marker: hasUserLocationMarker(),
+    });
+    map.closePopup();
+
+    if (hasUserLocationMarker()) {
+        const userLatLng = userLocationMarker.getLatLng();
+        // Explicit zoom (not map.getZoom()) so we don't inherit a stale
+        // zoom level from wherever the user was just looking. A user clicking
+        // "Find Nearest" while zoomed out over the whole city would otherwise
+        // get a bbox so wide the refetch returns nothing useful.
+        map.flyTo([userLatLng.lat, userLatLng.lng], FIND_NEAREST_ZOOM, {
+            animate: true,
+            duration: COMPASS_RECENTER_ANIMATION_SECONDS,
+        });
+        // map.once('moveend') is reliable — setTimeout can race the animation
+        // and refetch using bounds from before the fly completes.
+        map.once('moveend', () => {
+            loadDataForCurrentBounds(LOAD_DATA_TRIGGER.SEARCH_THIS_AREA);
+        });
+        return;
+    }
+
+    // No marker yet — kick off the full geolocation flow, which handles
+    // permission prompts, AU-bounds check, and refetch on success.
+    initializeWithUserLocation();
+}
+
 function updateCompassButtonState() {
     if (!compassButtonEl) {
         return;
@@ -975,7 +1018,7 @@ syncSupportMenuForViewport();
 // Environment Configuration
 const IS_LOCAL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname === '';
 const BACKEND_URL = IS_LOCAL ? "http://localhost:8000" : "https://loofinder-api.onrender.com";
-const APP_VERSION = "15.7";
+const APP_VERSION = "15.13";
 
 // --- Tip Prompt config ---------------------------------------------------
 // Show the BuyMeACoffee nudge after the user has clearly gotten value (a
@@ -1071,7 +1114,6 @@ const BACKEND_RECOVERY_RETRY_MS = 30 * 1000;
 const ratingSummaryInFlight = new Set();
 let facilityListItemMap = new Map();
 let selectedFacilityListItemEl = null;
-let selectedFacilityListItemTimer = null;
 let placeSearchResults = [];
 let placeSearchActiveIndex = -1;
 let placeSearchDebounceTimer = null;
@@ -2420,17 +2462,42 @@ function buildPopupHtml(facilityId, name, lat, lng) {
     `;
 }
 
+// Currently-highlighted facility id. Source of truth for which list item
+// carries .is-selected so we can clear it from popupclose, marker click on
+// a different facility, or re-render.
+let activeFacilityId = null;
+
 function highlightFacilityListItem(facilityId, options = {}) {
     const { scrollIntoView = true } = options;
     const key = String(facilityId || '');
-    const listItem = facilityListItemMap.get(key);
-    if (!listItem) {
+
+    // Re-triggering on the same facility is a no-op so the entry animation
+    // doesn't replay (and we don't churn scroll position).
+    if (activeFacilityId === key && (selectedFacilityListItemEl || !facilityListItemMap.get(key))) {
         return;
     }
 
+    const listItem = facilityListItemMap.get(key);
+
+    // Clear whatever was previously highlighted, even if the new facility
+    // isn't in the list (so the old highlight doesn't linger when the user
+    // taps a marker for something outside the nearest-5).
     if (selectedFacilityListItemEl && selectedFacilityListItemEl !== listItem) {
         selectedFacilityListItemEl.classList.remove('is-selected');
+        selectedFacilityListItemEl = null;
     }
+
+    activeFacilityId = key;
+
+    if (!listItem) {
+        // Facility isn't in the current Nearest 5 — surface a banner so the
+        // user knows their selection registered and can recenter if needed.
+        showOffListBanner();
+        return;
+    }
+
+    // Facility IS in the list, so any prior off-list banner is now stale.
+    hideOffListBanner();
 
     selectedFacilityListItemEl = listItem;
     listItem.classList.add('is-selected');
@@ -2438,17 +2505,54 @@ function highlightFacilityListItem(facilityId, options = {}) {
     if (scrollIntoView) {
         listItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
+}
 
-    if (selectedFacilityListItemTimer) {
-        clearTimeout(selectedFacilityListItemTimer);
+function clearFacilityListItemHighlight() {
+    if (selectedFacilityListItemEl) {
+        selectedFacilityListItemEl.classList.remove('is-selected');
+        selectedFacilityListItemEl = null;
     }
+    activeFacilityId = null;
+    hideOffListBanner();
+}
 
-    selectedFacilityListItemTimer = setTimeout(() => {
-        if (selectedFacilityListItemEl === listItem) {
-            listItem.classList.remove('is-selected');
-            selectedFacilityListItemEl = null;
-        }
-    }, 3000);
+// --- Off-list banner ---
+// Shown above the Nearest 5 list whenever the user is focused on a facility
+// that isn't in the current list (e.g. they panned the map and tapped a
+// distant marker). Gives a "you're somewhere else" cue + a recenter button
+// so they can get back to their location quickly.
+let _offListBannerWired = false;
+function ensureOffListBannerWired() {
+    if (_offListBannerWired) return;
+    const recenterBtn = document.getElementById('off-list-banner-recenter');
+    if (!recenterBtn) return;
+    recenterBtn.addEventListener('click', () => {
+        trackEvent('off_list_banner_recenter_clicked');
+        // Reuse findNearest so the banner's Recenter behaves exactly like
+        // the sidebar's "Find Nearest to Me" — snap to a known zoom, then
+        // refetch on moveend. closePopup triggers popupclose ->
+        // clearFacilityListItemHighlight which hides this banner.
+        findNearest();
+    });
+    _offListBannerWired = true;
+}
+
+function showOffListBanner() {
+    const banner = document.getElementById('off-list-banner');
+    if (!banner) return;
+    ensureOffListBannerWired();
+
+    if (banner.hidden) {
+        banner.hidden = false;
+        trackEvent('off_list_facility_viewed');
+    }
+}
+
+function hideOffListBanner() {
+    const banner = document.getElementById('off-list-banner');
+    if (banner && !banner.hidden) {
+        banner.hidden = true;
+    }
 }
 
 // --- Data Fetching (Comprehensive Detection) ---
@@ -2532,11 +2636,10 @@ async function renderMapPoints() {
     const listContainer = document.getElementById('facility-list');
     listContainer.innerHTML = '';
     facilityListItemMap = new Map();
-    selectedFacilityListItemEl = null;
-    if (selectedFacilityListItemTimer) {
-        clearTimeout(selectedFacilityListItemTimer);
-        selectedFacilityListItemTimer = null;
-    }
+    // The list is being rebuilt, so any previous highlight pointer is stale.
+    // Drop both the DOM reference and activeFacilityId so the next selection
+    // re-applies the class to the new node rather than the old detached one.
+    clearFacilityListItemHighlight();
     
     const referencePoint = userLocationMarker ? userLocationMarker.getLatLng() : map.getCenter();
 
@@ -2594,6 +2697,15 @@ async function renderMapPoints() {
             fetchAndDisplayRating(facilityId, "rt-" + facilityId);
             highlightFacilityListItem(facilityId, { scrollIntoView: true });
             collapseSidebar();
+        });
+        marker.on('popupclose', () => {
+            // If the user opens a different popup, that popup's popupopen
+            // will have already overwritten activeFacilityId by the time
+            // this close fires — so the guard avoids clearing the new
+            // highlight. Plain "close via X" still hits this and clears.
+            if (activeFacilityId === String(facilityId)) {
+                clearFacilityListItemHighlight();
+            }
         });
         f.layerRef = marker;
         currentMapLayer.addLayer(marker);
