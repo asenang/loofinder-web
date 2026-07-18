@@ -540,6 +540,78 @@ function recenterMapToUserLocation() {
 // in most populated areas. Matches the original pre-refactor behaviour.
 const FIND_NEAREST_ZOOM = 15;
 
+// A fix older than this is considered stale enough to silently re-request when
+// the tab regains focus (e.g. after the phone is unlocked). Short enough that a
+// user who walked a block while the screen was off gets corrected, long enough
+// that flicking between apps doesn't hammer the GPS.
+const POSITION_REFRESH_STALE_MS = 2 * 60 * 1000;
+
+// Silently re-request the user's position when the current fix is stale, and
+// nudge the location marker to the new spot WITHOUT moving the camera or
+// refetching toilets. Wired to visibilitychange/pageshow so a locked-then-
+// unlocked phone doesn't leave the blue dot frozen at the pre-lock position.
+// The camera is deliberately left alone — yanking the map on every unlock would
+// be hostile; the user can tap "Find Nearest" if they want to recenter.
+function refreshUserPositionIfStale(source) {
+    if (!navigator.geolocation) {
+        return;
+    }
+    if (Date.now() - lastPositionFixAt < POSITION_REFRESH_STALE_MS) {
+        return;
+    }
+    if (positionRefreshInFlight) {
+        return;
+    }
+    positionRefreshInFlight = true;
+
+    navigator.geolocation.getCurrentPosition(
+        (pos) => {
+            positionRefreshInFlight = false;
+            const lat = pos.coords.latitude;
+            const lng = pos.coords.longitude;
+            if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+                return;
+            }
+
+            // Measure movement against the previous marker position BEFORE we
+            // move it, so we can flag a large jump for analytics.
+            let movedMeters = null;
+            if (hasUserLocationMarker()) {
+                const prev = userLocationMarker.getLatLng();
+                movedMeters = map.distance(prev, L.latLng(lat, lng));
+            }
+
+            lastPositionFixAt = Date.now();
+            userLat = lat;
+            userLng = lng;
+            upsertUserLocationMarker(lat, lng);
+
+            // Big move while the tab was hidden — the user clearly relocated.
+            // We still don't move the camera (silent refresh), but flag it so we
+            // can see how often a resume lands somewhere materially different.
+            if (movedMeters !== null && movedMeters > 500) {
+                trackEvent('position_refresh_large_move', { source });
+            }
+        },
+        () => {
+            // Silent refresh must never toast. Just clear the flag and move on.
+            positionRefreshInFlight = false;
+        },
+        { maximumAge: 30000, timeout: 10000, enableHighAccuracy: false }
+    );
+}
+
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+        refreshUserPositionIfStale('visibilitychange');
+    }
+});
+
+// pageshow (incl. bfcache restores, where visibilitychange may not fire).
+window.addEventListener('pageshow', () => {
+    refreshUserPositionIfStale('pageshow');
+});
+
 // "Find Nearest to Me" sidebar button handler. Two paths:
 //   - We already have the user's location: fly to it at a known zoom and
 //     refetch the nearby loos so the Nearest 5 updates to reflect where
@@ -557,6 +629,21 @@ function findNearest() {
 
     if (hasUserLocationMarker()) {
         const userLatLng = userLocationMarker.getLatLng();
+
+        // Named handler + explicit off/on so the fresh-fix re-fly below can
+        // re-arm the refetch without ever stacking two listeners that both
+        // fire from the same movement. Using on + self-removal (not once) keeps
+        // off() fully deterministic: at most one registration exists at a time.
+        const refetchOnMoveEnd = () => {
+            map.off('moveend', refetchOnMoveEnd);
+            loadDataForCurrentBounds(LOAD_DATA_TRIGGER.SEARCH_THIS_AREA);
+        };
+        const armRefetch = () => {
+            map.off('moveend', refetchOnMoveEnd);
+            map.on('moveend', refetchOnMoveEnd);
+        };
+
+        // Instant response: fly to the marker we already have.
         // Explicit zoom (not map.getZoom()) so we don't inherit a stale
         // zoom level from wherever the user was just looking. A user clicking
         // "Find Nearest" while zoomed out over the whole city would otherwise
@@ -567,9 +654,45 @@ function findNearest() {
         });
         // map.once('moveend') is reliable — setTimeout can race the animation
         // and refetch using bounds from before the fly completes.
-        map.once('moveend', () => {
-            loadDataForCurrentBounds(LOAD_DATA_TRIGGER.SEARCH_THIS_AREA);
-        });
+        armRefetch();
+
+        // In parallel, get a fresh fix. The marker we just flew to may be stale
+        // (locked phone, moved since). If the fresh position is materially
+        // different from where we flew, correct the marker and re-fly so the
+        // user ends up in the right place — at the cost of a second camera move
+        // only when it actually matters.
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(
+                (pos) => {
+                    const freshLat = pos.coords.latitude;
+                    const freshLng = pos.coords.longitude;
+                    if (!Number.isFinite(freshLat) || !Number.isFinite(freshLng)) {
+                        return;
+                    }
+                    lastPositionFixAt = Date.now();
+                    userLat = freshLat;
+                    userLng = freshLng;
+                    upsertUserLocationMarker(freshLat, freshLng);
+
+                    const drift = map.distance(userLatLng, L.latLng(freshLat, freshLng));
+                    if (drift > 100) {
+                        map.flyTo([freshLat, freshLng], FIND_NEAREST_ZOOM, {
+                            animate: true,
+                            duration: COMPASS_RECENTER_ANIMATION_SECONDS,
+                        });
+                        // Re-arm (not stack) the refetch for the new movement.
+                        // The first moveend may already have fired and fetched;
+                        // that's fine — loadToken supersedes the stale result.
+                        armRefetch();
+                    }
+                },
+                () => {
+                    // Fresh fix failed — the instant fly + refetch already
+                    // happened, so there's nothing to do and nothing to toast.
+                },
+                { maximumAge: 30000, timeout: 10000, enableHighAccuracy: false }
+            );
+        }
         return;
     }
 
@@ -1018,7 +1141,7 @@ syncSupportMenuForViewport();
 // Environment Configuration
 const IS_LOCAL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname === '';
 const BACKEND_URL = IS_LOCAL ? "http://localhost:8000" : "https://loofinder-api.onrender.com";
-const APP_VERSION = "15.19";
+const APP_VERSION = "15.20";
 
 // --- Tip Prompt config ---------------------------------------------------
 // Show the BuyMeACoffee nudge after the user has clearly gotten value (a
@@ -1087,6 +1210,11 @@ let allToiletData = { features: [] };
 let ratingCache = {};
 let ratingSummaryCache = {};
 let userLocationMarker = null;
+// Timestamp (ms) of the last successful geolocation fix applied to the marker.
+// Used to decide whether a silent refresh is warranted on tab resume.
+let lastPositionFixAt = 0;
+// Guards refreshUserPositionIfStale against overlapping getCurrentPosition calls.
+let positionRefreshInFlight = false;
 let compassControl = null;
 let compassButtonEl = null;
 let compassEnabled = false;
@@ -3239,7 +3367,8 @@ function initializeWithUserLocation() {
             // Update user coordinates for theme calculation
             userLat = lat;
             userLng = lng;
-            
+            lastPositionFixAt = Date.now();
+
             // Set map to user location immediately
             map.setView([lat, lng], 15);
             
