@@ -1141,7 +1141,7 @@ syncSupportMenuForViewport();
 // Environment Configuration
 const IS_LOCAL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname === '';
 const BACKEND_URL = IS_LOCAL ? "http://localhost:8000" : "https://loofinder-api.onrender.com";
-const APP_VERSION = "15.20";
+const APP_VERSION = "15.21";
 
 // --- Tip Prompt config ---------------------------------------------------
 // Show the BuyMeACoffee nudge after the user has clearly gotten value (a
@@ -2439,15 +2439,35 @@ function maybeShowTipPromptAfterDirections(source) {
 // like any other failure and move to the next endpoint.
 const OVERPASS_FETCH_TIMEOUT_MS = 8000;
 
-async function fetchOverpassJson(query) {
+// Index of the endpoint that most recently succeeded. Subsequent queries
+// start there instead of always hammering endpoint 0 — when the primary is
+// having a bad day, we stop paying its full timeout on every single query.
+let _lastGoodOverpassIndex = 0;
+
+// externalSignal (optional): aborting it cancels the whole attempt chain.
+// Used to kill superseded loads so they release Overpass's per-IP slots
+// instead of starving the load the user actually cares about.
+async function fetchOverpassJson(query, externalSignal) {
     let lastError = null;
 
-    for (const endpoint of OVERPASS_ENDPOINTS) {
+    for (let i = 0; i < OVERPASS_ENDPOINTS.length; i++) {
+        if (externalSignal && externalSignal.aborted) {
+            throw new DOMException('Superseded', 'AbortError');
+        }
+
+        const endpointIndex = (_lastGoodOverpassIndex + i) % OVERPASS_ENDPOINTS.length;
+        const endpoint = OVERPASS_ENDPOINTS[endpointIndex];
+
         let timeoutId = null;
         let controller = null;
+        let onExternalAbort = null;
         if (typeof AbortController !== 'undefined') {
             controller = new AbortController();
             timeoutId = setTimeout(() => controller.abort(), OVERPASS_FETCH_TIMEOUT_MS);
+            if (externalSignal) {
+                onExternalAbort = () => controller.abort();
+                externalSignal.addEventListener('abort', onExternalAbort, { once: true });
+            }
         }
 
         try {
@@ -2460,11 +2480,22 @@ async function fetchOverpassJson(query) {
                 continue;
             }
 
-            return await response.json();
+            const json = await response.json();
+            _lastGoodOverpassIndex = endpointIndex;
+            return json;
         } catch (error) {
             lastError = error;
+            // If the EXTERNAL signal aborted (superseded load), stop the
+            // chain entirely — retrying other endpoints for a dead load
+            // just burns per-IP slots.
+            if (externalSignal && externalSignal.aborted) {
+                throw error;
+            }
         } finally {
             if (timeoutId !== null) clearTimeout(timeoutId);
+            if (onExternalAbort && externalSignal) {
+                externalSignal.removeEventListener('abort', onExternalAbort);
+            }
         }
     }
 
@@ -2876,7 +2907,14 @@ function attachLandmarkNamesToFeatures(features, landmarkElements) {
 }
 
 // --- Data Fetching (Comprehensive Detection) ---
-async function loadDataForCurrentBounds(trigger) {
+// AbortController for the currently-active load. Starting a new load aborts
+// the previous one's in-flight Overpass fetches so they release the per-IP
+// slots immediately — otherwise a rapid pan+refetch sequence (e.g. the
+// findNearest double-fly) leaves dead requests starving the live one, and
+// Overpass 429s cascade until everything fails.
+let _activeLoadAbortController = null;
+
+async function loadDataForCurrentBounds(trigger, isRetry = false) {
     if (!ALLOWED_LOAD_DATA_TRIGGERS.has(trigger)) {
         console.warn('Blocked facility refetch from unknown trigger.', trigger);
         return;
@@ -2886,10 +2924,18 @@ async function loadDataForCurrentBounds(trigger) {
     setSearchAreaButtonState(SEARCH_AREA_STATES.LOADING);
 
     const loadToken = ++currentLoadToken;
+
+    if (_activeLoadAbortController) {
+        _activeLoadAbortController.abort();
+    }
+    const abortController = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    _activeLoadAbortController = abortController;
+    const signal = abortController ? abortController.signal : undefined;
+
     const requestedCenter = map.getCenter();
     const requestedZoom = map.getZoom();
     const bounds = map.getBounds();
-    
+
     try {
         const query = `
             [out:json][timeout:15];
@@ -2901,19 +2947,11 @@ async function loadDataForCurrentBounds(trigger) {
             out center;
         `;
 
-        // Fetch named landmarks in parallel with toilets so the round-trip
-        // overhead is one network wait, not two. Landmarks failing is fine —
-        // we just lose the building-name enrichment for this fetch.
-        const landmarksQuery = buildLandmarksOverpassQuery(bounds);
-        const landmarksPromise = fetchOverpassJson(landmarksQuery).catch((err) => {
-            console.warn("Landmark Overpass query failed (non-fatal):", err);
-            return null;
-        });
-
         let data = null;
         try {
-            data = await fetchOverpassJson(query);
+            data = await fetchOverpassJson(query, signal);
         } catch (primaryError) {
+            if (loadToken !== currentLoadToken) return;
             const center = map.getCenter();
             const fallbackQuery = `
                 [out:json][timeout:15];
@@ -2924,7 +2962,7 @@ async function loadDataForCurrentBounds(trigger) {
                 );
                 out center;
             `;
-            data = await fetchOverpassJson(fallbackQuery);
+            data = await fetchOverpassJson(fallbackQuery, signal);
             console.warn("BBox query failed, used wider center-radius fallback.", primaryError);
         }
 
@@ -2934,9 +2972,8 @@ async function loadDataForCurrentBounds(trigger) {
 
         allToiletData.features = dedupeFeatures(elementsToFeatures(data.elements || []));
 
-        // Render toilets immediately — do NOT block first paint on the
-        // landmarks query. When landmarks resolve later we patch names into
-        // the already-rendered UI via applyResolvedName.
+        // Render toilets immediately — the landmarks query hasn't even been
+        // sent yet (see below), so first paint only ever waits on toilets.
         await renderMapPoints();
 
         lastLoadedViewport = {
@@ -2946,33 +2983,60 @@ async function loadDataForCurrentBounds(trigger) {
         };
         setSearchAreaButtonState(SEARCH_AREA_STATES.CURRENT);
 
-        // Landmarks arrive after first render. Guard on loadToken (a newer
-        // load supersedes this one), then patch matched toilets in place.
-        landmarksPromise.then((landmarksData) => {
-            if (loadToken !== currentLoadToken) return;
-            if (landmarksData && Array.isArray(landmarksData.elements)) {
-                const matched = attachLandmarkNamesToFeatures(allToiletData.features, landmarksData.elements);
-                if (matched > 0) {
-                    trackEvent('landmark_names_attached', { count: matched });
+        // Landmarks fetch AFTER toilets succeed, not in parallel. Overpass
+        // allows ~2 concurrent slots per IP; firing both at once means a
+        // single user tap can exhaust the quota (and the findNearest
+        // double-fly made that a 4-8 request burst that 429'd everything).
+        // Sequential costs landmark names ~1 extra second of latency, which
+        // is invisible because they patch into the UI asynchronously anyway.
+        fetchOverpassJson(buildLandmarksOverpassQuery(bounds), signal)
+            .then((landmarksData) => {
+                if (loadToken !== currentLoadToken) return;
+                if (landmarksData && Array.isArray(landmarksData.elements)) {
+                    const matched = attachLandmarkNamesToFeatures(allToiletData.features, landmarksData.elements);
+                    if (matched > 0) {
+                        trackEvent('landmark_names_attached', { count: matched });
+                    }
                 }
-            }
-        }).catch((error) => {
-            console.warn("Landmark name attachment failed (non-fatal):", error);
-        });
+            })
+            .catch((error) => {
+                console.warn("Landmark Overpass query failed (non-fatal):", error);
+            });
 
         resolveNamesInBackground(loadToken, allToiletData.features).catch((error) => {
             console.error("Background name resolution failed:", error);
         });
 
-    } catch (e) { 
-        console.error("Overpass API Error:", e); 
-        trackEvent('overpass_fetch_failed', { message: e && e.message ? e.message : 'unknown' });
+    } catch (e) {
+        // Superseded loads fail by design (their fetches were aborted when
+        // the newer load started) — never surface those to the user.
+        if (loadToken !== currentLoadToken) {
+            return;
+        }
+
+        console.error("Overpass API Error:", e);
+        trackEvent('overpass_fetch_failed', { message: e && e.message ? e.message : 'unknown', retried: isRetry });
+
+        // One silent retry before giving up: right after a phone unlock the
+        // radio can still be waking up, and a transient total failure here
+        // otherwise becomes a scary error toast for a self-healing problem.
+        if (!isRetry) {
+            setTimeout(() => {
+                if (loadToken === currentLoadToken) {
+                    loadDataForCurrentBounds(trigger, true);
+                }
+            }, 2000);
+            return;
+        }
+
         showToast("Error finding toilets in this area. Try zooming in or moving to a different area.", "error");
         setSearchAreaButtonState(SEARCH_AREA_STATES.STALE);
-    } finally { 
-        document.getElementById('loader').style.display = 'none'; 
-        if (loadToken === currentLoadToken && searchAreaButtonState === SEARCH_AREA_STATES.LOADING) {
-            setSearchAreaButtonState(SEARCH_AREA_STATES.STALE);
+    } finally {
+        if (loadToken === currentLoadToken) {
+            document.getElementById('loader').style.display = 'none';
+            if (searchAreaButtonState === SEARCH_AREA_STATES.LOADING) {
+                setSearchAreaButtonState(SEARCH_AREA_STATES.STALE);
+            }
         }
     }
 }
