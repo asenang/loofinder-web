@@ -8,7 +8,7 @@
  *     fall back to cache so the last-seen data still renders offline.
  *   - Everything else: network-first.
  */
-const SW_VERSION = "v1.0.8";
+const SW_VERSION = "v1.0.9";
 const APP_CACHE = `loofinder-app-${SW_VERSION}`;
 const TILE_CACHE = `loofinder-tiles-${SW_VERSION}`;
 const API_CACHE = `loofinder-api-${SW_VERSION}`;
@@ -119,10 +119,24 @@ async function cacheFirstWithCap(request, cacheName, cap) {
   }
 }
 
+// How long to wait on the network before falling back to cache. A hung
+// API/Overpass fetch would otherwise stall the response indefinitely, since
+// the cache fallback only fires on rejection.
+const NETWORK_FIRST_TIMEOUT_MS = 10000;
+
 async function networkFirst(request, cacheName) {
   const cache = await caches.open(cacheName);
+  let timeoutId = null;
+  let controller = null;
+  if (typeof AbortController !== "undefined") {
+    controller = new AbortController();
+    timeoutId = setTimeout(() => controller.abort(), NETWORK_FIRST_TIMEOUT_MS);
+  }
   try {
-    const response = await fetch(request);
+    const response = await fetch(
+      request,
+      controller ? { signal: controller.signal } : undefined
+    );
     if (response && response.ok && request.method === "GET") {
       cache.put(request, response.clone()).catch(() => {});
     }
@@ -131,6 +145,8 @@ async function networkFirst(request, cacheName) {
     const cached = await cache.match(request);
     if (cached) return cached;
     throw err;
+  } finally {
+    if (timeoutId !== null) clearTimeout(timeoutId);
   }
 }
 

@@ -1018,7 +1018,7 @@ syncSupportMenuForViewport();
 // Environment Configuration
 const IS_LOCAL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname === '';
 const BACKEND_URL = IS_LOCAL ? "http://localhost:8000" : "https://loofinder-api.onrender.com";
-const APP_VERSION = "15.18";
+const APP_VERSION = "15.19";
 
 // --- Tip Prompt config ---------------------------------------------------
 // Show the BuyMeACoffee nudge after the user has clearly gotten value (a
@@ -1804,6 +1804,10 @@ const toiletIcon = L.divIcon({
 
 // --- Resolved Name Cache (from Backend) ---
 const nameCache = {}; // Cache resolved names to avoid repeated API calls
+// Facility ids whose name came from the toilet's own OSM tags (name /
+// addr:housename / operator). These are the highest-trust names and must
+// never be overwritten by landmark containment or geocoded addresses.
+const tagNamedFacilityIds = new Set();
 
 // Get resolved name from backend (cached in database)
 async function getResolvedNameFromBackend(facilityId) {
@@ -2301,12 +2305,27 @@ function maybeShowTipPromptAfterDirections(source) {
     }, TIP_PROMPT_SHOW_DELAY_MS);
 }
 
+// Per-endpoint hard timeout. Overpass mirrors can hang for minutes (504s,
+// overloaded backends), and a bare fetch has no client-side deadline, so a
+// stalled request would block the loader indefinitely. On abort we treat it
+// like any other failure and move to the next endpoint.
+const OVERPASS_FETCH_TIMEOUT_MS = 8000;
+
 async function fetchOverpassJson(query) {
     let lastError = null;
 
     for (const endpoint of OVERPASS_ENDPOINTS) {
+        let timeoutId = null;
+        let controller = null;
+        if (typeof AbortController !== 'undefined') {
+            controller = new AbortController();
+            timeoutId = setTimeout(() => controller.abort(), OVERPASS_FETCH_TIMEOUT_MS);
+        }
+
         try {
-            const response = await fetch(`${endpoint}?data=${encodeURIComponent(query)}`);
+            const response = await fetch(`${endpoint}?data=${encodeURIComponent(query)}`, {
+                signal: controller ? controller.signal : undefined
+            });
 
             if (!response.ok) {
                 lastError = new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -2316,6 +2335,8 @@ async function fetchOverpassJson(query) {
             return await response.json();
         } catch (error) {
             lastError = error;
+        } finally {
+            if (timeoutId !== null) clearTimeout(timeoutId);
         }
     }
 
@@ -2393,11 +2414,14 @@ function elementsToFeatures(elements) {
             // (e.g. addr:housename="Melbourne Central"), use that directly
             // and skip the reverse-geocoding queue entirely. Seed nameCache
             // so resolveNamesInBackground doesn't queue this feature in
-            // Phase 2's 1/sec serial loop.
+            // Phase 2's 1/sec serial loop. Also record the id in
+            // tagNamedFacilityIds — tag-based names are the most accurate
+            // source and must not be overwritten by landmark containment.
             const tagBasedName = pickTagBasedName(tags);
             const initialName = tagBasedName || "Public Toilet";
             if (tagBasedName) {
                 nameCache[featureId] = tagBasedName;
+                tagNamedFacilityIds.add(String(featureId));
             }
 
             return {
@@ -2480,6 +2504,11 @@ async function resolveNamesInBackground(loadToken, features) {
     for (const feature of needsGeocoding) {
         if (loadToken !== currentLoadToken) return;
         const props = feature.properties;
+        // The landmarks query races this loop: a landmark name may have been
+        // applied since the work-list was built. Re-check per iteration so a
+        // later street geocode never overwrites a landmark name (and we save
+        // a geocode call).
+        if (nameCache[props.id]) continue;
         const geocodedName = await geocodeAddress(props.lat, props.lon);
         if (loadToken !== currentLoadToken) return;
         if (geocodedName) {
@@ -2632,12 +2661,15 @@ function buildLandmarksOverpassQuery(bounds) {
           way["name"]["leisure"~"^(stadium|sports_centre|park|garden)$"](${bbox});
           way["name"]["railway"~"^(station)$"](${bbox});
           way["name"]["building"~"^(train_station|civic|public|retail|commercial|mall)$"](${bbox});
-          relation["name"]["site"](${bbox});
-          relation["name"]["building"](${bbox});
         );
         out tags bb;
     `;
 }
+
+// Landmark names that are actually road infrastructure. Their bboxes are long,
+// thin, and sprawling, so a nearby street toilet wrongly ends up labelled e.g.
+// "West Gate Freeway Onramp". Skip any landmark whose name matches.
+const LANDMARK_NAME_REJECT_RE = /\b(freeway|motorway|highway|onramp|on ramp|offramp|off ramp|overpass|underpass|bypass|roundabout|interchange)\b/i;
 
 // Sort key: smaller-bbox landmarks first so the most specific name wins
 // (e.g., a food court inside a shopping centre matches before the whole
@@ -2651,7 +2683,16 @@ function landmarkBboxArea(landmark) {
 function isPointInsideLandmark(lat, lon, landmark) {
     const b = landmark && landmark.bounds;
     if (!b) return false;
-    return lat >= b.minlat && lat <= b.maxlat && lon >= b.minlon && lon <= b.maxlon;
+    // Require containment inside a bbox shrunk by 10% on each edge. This trims
+    // false positives from long thin features and from toilets sitting on the
+    // footpath just outside a building — at the cost of missing genuinely-
+    // contained toilets in the outermost 10% ring of the bbox.
+    const latInset = (b.maxlat - b.minlat) * 0.1;
+    const lonInset = (b.maxlon - b.minlon) * 0.1;
+    return (
+        lat >= b.minlat + latInset && lat <= b.maxlat - latInset &&
+        lon >= b.minlon + lonInset && lon <= b.maxlon - lonInset
+    );
 }
 
 // Max bbox area in degrees^2 we'll trust for containment. Larger than this
@@ -2666,8 +2707,10 @@ function attachLandmarkNamesToFeatures(features, landmarkElements) {
 
     // Index landmarks by bbox-area asc so smaller (more specific) ones win
     // the containment race for any toilet sitting inside nested landmarks.
+    // Road-infrastructure names (freeway onramps etc.) are rejected outright.
     const usableLandmarks = landmarkElements
         .filter((el) => el && el.bounds && el.tags && el.tags.name)
+        .filter((el) => !LANDMARK_NAME_REJECT_RE.test(String(el.tags.name)))
         .filter((el) => landmarkBboxArea(el) <= LANDMARK_MAX_BBOX_AREA_DEG2)
         .sort((a, b) => landmarkBboxArea(a) - landmarkBboxArea(b));
 
@@ -2678,9 +2721,14 @@ function attachLandmarkNamesToFeatures(features, landmarkElements) {
         if (!feature || !feature.properties) continue;
         const props = feature.properties;
 
-        // Already has a tag-based name from pickTagBasedName, or already
-        // landed in nameCache via a previous fetch — don't overwrite.
-        if (nameCache[props.id]) continue;
+        // Tag-based names (from the toilet's own OSM tags) are the most
+        // accurate source — never overwrite those. But DO overwrite geocoded
+        // street addresses (from the backend cache or Phase-2 geocoding):
+        // "Melbourne Central" beats "Little Lonsdale Street" for a toilet
+        // inside the building, and since landmarks race the backend bulk
+        // name fetch, first-writer-wins would otherwise let cached street
+        // names permanently shadow landmark names.
+        if (tagNamedFacilityIds.has(String(props.id))) continue;
 
         const lat = props.lat;
         const lon = props.lon;
@@ -2689,8 +2737,10 @@ function attachLandmarkNamesToFeatures(features, landmarkElements) {
         const match = usableLandmarks.find((landmark) => isPointInsideLandmark(lat, lon, landmark));
         if (match) {
             const name = String(match.tags.name).trim().slice(0, 220);
-            props.Name = name;
-            nameCache[props.id] = name;
+            // Route through applyResolvedName so it updates the already-
+            // rendered sidebar title + marker popup in place (and seeds
+            // nameCache, so the background geocode queue skips this toilet).
+            applyResolvedName(feature, name);
             matched += 1;
         }
     }
@@ -2756,18 +2806,9 @@ async function loadDataForCurrentBounds(trigger) {
 
         allToiletData.features = dedupeFeatures(elementsToFeatures(data.elements || []));
 
-        // Wait for landmarks (already in-flight); apply names BEFORE the
-        // first render so users see "Melbourne Central" immediately instead
-        // of "Public Toilet" -> name swap.
-        const landmarksData = await landmarksPromise;
-        if (loadToken !== currentLoadToken) return;
-        if (landmarksData && Array.isArray(landmarksData.elements)) {
-            const matched = attachLandmarkNamesToFeatures(allToiletData.features, landmarksData.elements);
-            if (matched > 0) {
-                trackEvent('landmark_names_attached', { count: matched });
-            }
-        }
-
+        // Render toilets immediately — do NOT block first paint on the
+        // landmarks query. When landmarks resolve later we patch names into
+        // the already-rendered UI via applyResolvedName.
         await renderMapPoints();
 
         lastLoadedViewport = {
@@ -2776,6 +2817,20 @@ async function loadDataForCurrentBounds(trigger) {
             zoom: requestedZoom
         };
         setSearchAreaButtonState(SEARCH_AREA_STATES.CURRENT);
+
+        // Landmarks arrive after first render. Guard on loadToken (a newer
+        // load supersedes this one), then patch matched toilets in place.
+        landmarksPromise.then((landmarksData) => {
+            if (loadToken !== currentLoadToken) return;
+            if (landmarksData && Array.isArray(landmarksData.elements)) {
+                const matched = attachLandmarkNamesToFeatures(allToiletData.features, landmarksData.elements);
+                if (matched > 0) {
+                    trackEvent('landmark_names_attached', { count: matched });
+                }
+            }
+        }).catch((error) => {
+            console.warn("Landmark name attachment failed (non-fatal):", error);
+        });
 
         resolveNamesInBackground(loadToken, allToiletData.features).catch((error) => {
             console.error("Background name resolution failed:", error);
@@ -3213,7 +3268,12 @@ function initializeWithUserLocation() {
             
             // Load data for the default (Melbourne) view
             setTimeout(() => loadDataForCurrentBounds(LOAD_DATA_TRIGGER.STARTUP_GEOLOCATION_FALLBACK), 500);
-        }
+        },
+        // Without a timeout, some Android devices never fire either callback if
+        // a fix can't be acquired, leaving the app stuck on the loader forever.
+        // A TIMEOUT error code lands in the errorCb else-branch (same fallback
+        // path as unavailable), so the app still loads the default view.
+        { timeout: 10000, maximumAge: 60000, enableHighAccuracy: false }
     );
 }
 
