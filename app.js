@@ -1018,7 +1018,7 @@ syncSupportMenuForViewport();
 // Environment Configuration
 const IS_LOCAL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname === '';
 const BACKEND_URL = IS_LOCAL ? "http://localhost:8000" : "https://loofinder-api.onrender.com";
-const APP_VERSION = "15.17";
+const APP_VERSION = "15.18";
 
 // --- Tip Prompt config ---------------------------------------------------
 // Show the BuyMeACoffee nudge after the user has clearly gotten value (a
@@ -1406,13 +1406,12 @@ function mergePlaceSearchResults(primaryResults, secondaryResults) {
     const merged = [];
     const seen = new Set();
     for (const result of [...primaryResults, ...secondaryResults]) {
-        const lat = Number(result && result.lat);
-        const lon = Number(result && result.lon);
-        const key = `${String((result && result.name) || '').toLowerCase()}|${Number.isFinite(lat) ? lat.toFixed(4) : ''}|${Number.isFinite(lon) ? lon.toFixed(4) : ''}`;
-        if (!seen.has(key)) {
-            seen.add(key);
-            merged.push(result);
+        const key = String((result && result.name) || '').trim().toLowerCase();
+        if (!key || seen.has(key)) {
+            continue;
         }
+        seen.add(key);
+        merged.push(result);
     }
     return merged;
 }

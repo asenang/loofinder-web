@@ -911,6 +911,9 @@ textarea { width: 100%; padding: 12px; border: 1px solid #e2e8f0; border-radius:
     :root {
         --mobile-compass-bottom-offset: 172px;
         --mobile-search-above-compass-gap: 20px;
+        /* Compensates for the Leaflet attribution control stacked under the
+           compass control in the same bottom-right corner container. */
+        --leaflet-attribution-height: 14px;
     }
 
     /* 1. The Floating Island Card */
@@ -955,7 +958,7 @@ textarea { width: 100%; padding: 12px; border: 1px solid #e2e8f0; border-radius:
         right: auto;
         transform: none;
         top: auto;
-        bottom: var(--mobile-compass-bottom-offset);
+        bottom: calc(var(--mobile-compass-bottom-offset) + var(--leaflet-attribution-height));
         width: auto;
         align-items: flex-start;
     }
@@ -1010,7 +1013,12 @@ textarea { width: 100%; padding: 12px; border: 1px solid #e2e8f0; border-radius:
 
     .place-search.is-expanded .place-search-field {
         display: flex;
-        margin-top: 8px;
+        margin-top: 0;
+        height: 40px;
+    }
+
+    .place-search.is-expanded .place-search-field input {
+        padding: 8px 2px;
     }
 
     #btn-search-area {
@@ -1134,7 +1142,7 @@ textarea { width: 100%; padding: 12px; border: 1px solid #e2e8f0; border-radius:
         .place-search {
             left: 12px;
             right: auto;
-            bottom: calc(var(--mobile-compass-bottom-offset) + env(safe-area-inset-bottom));
+            bottom: calc(var(--mobile-compass-bottom-offset) + var(--leaflet-attribution-height) + env(safe-area-inset-bottom));
         }
         .place-search.is-expanded {
             top: calc(12px + env(safe-area-inset-top));
