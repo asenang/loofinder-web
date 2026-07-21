@@ -27,7 +27,7 @@
     
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0" />
     
-    <link rel="stylesheet" href="style.css?v=15.0">
+    <link rel="stylesheet" href="style.css?v=15.22">
 
     <!-- Favicon -->
     <link rel="icon" type="image/svg+xml" href="assets/logos/loofinder-logo-icon.svg">
@@ -37,7 +37,25 @@
 <body>
     <div id="toast-container" class="toast-container" aria-live="polite" aria-atomic="true" aria-relevant="additions text"></div>
 
-    <div id="loader"><div class="spinner"></div> Getting your loos together...</div>
+    <div id="loader">
+        <span class="loo-loader" aria-hidden="true">
+            <svg viewBox="0 0 48 48" class="loo-loader-svg" xmlns="http://www.w3.org/2000/svg">
+                <!-- cistern -->
+                <rect x="7" y="8" width="9" height="16" rx="2" fill="currentColor"/>
+                <!-- pedestal base -->
+                <path d="M18 33 h9 l-2 7 h-5 z" fill="currentColor"/>
+                <!-- bowl -->
+                <path d="M15 24 h22 a4 4 0 0 1 4 4 a13 8 0 0 1 -30 0 a4 4 0 0 1 4 -4 z" fill="currentColor"/>
+                <!-- seat opening -->
+                <ellipse cx="26" cy="28.5" rx="10" ry="4.2" fill="#fff"/>
+                <!-- lid: hinged at its left edge (back of the seat), flaps up and down -->
+                <g class="loo-lid">
+                    <path d="M16 24.5 h20 a4 4 0 0 1 4 3.8 a12 3.4 0 0 1 -28 0 a3.4 3.4 0 0 1 4 -3.8 z" fill="currentColor"/>
+                </g>
+            </svg>
+        </span>
+        <span class="loo-loader-text">Getting your loos together...</span>
+    </div>
     <button id="theme-toggle" class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle dark mode">
         <span id="theme-toggle-icon" class="material-symbols-outlined">dark_mode</span>
     </button>
@@ -279,6 +297,6 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://unpkg.com/leaflet-rotate@0.2.8/dist/leaflet-rotate.js"></script>
     <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
-    <script src="app.js?v=15.21"></script>
+    <script src="app.js?v=15.22"></script>
 </body>
 </html>

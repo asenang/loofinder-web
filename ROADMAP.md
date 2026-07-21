@@ -4,6 +4,12 @@ This document tracks potential future enhancements for the `loofinder-web` front
 
 ## Recommended Next Additions
 
+### 0. Split `app.js` into ES Modules
+
+- **Why:** `app.js` has grown to roughly 3,900 lines covering map setup, Overpass fetching, name resolution, reviews, PWA/analytics, and UI wiring in one file. This is a real maintainability risk going forward.
+- **Add:** Break it into focused ES modules (e.g. `map.js`, `search.js`, `names.js`, `ui.js`) with clear boundaries, keeping the no-build-step constraint in mind (native `<script type="module">` or a minimal bundler decision).
+- **MVP:** Start with the lowest-risk extraction (e.g. name/geocoding resolution) before touching map/state-heavy code.
+
 ### 1. Lightweight Analytics Viewer
 
 - **Why:** Event ingestion and the admin API summary now exist, but there is no friendly way to read trends without opening raw JSON.
@@ -22,12 +28,6 @@ This document tracks potential future enhancements for the `loofinder-web` front
 - **Why:** The API can return `content_filtered: true`, but the frontend does not clearly tell users when their review text was replaced.
 - **Add:** A user-facing toast or inline message after review submission when content was filtered.
 - **MVP:** Show a neutral message such as “Your rating was saved, but the text was hidden because it may violate the content policy.”
-
-### 4. Backend Recovery UX
-
-- **Why:** A transient backend failure can put the frontend into limited mode for the rest of the session.
-- **Add:** Retry/backoff logic and a way to clear `backendUnavailable` after a successful health check or API response.
-- **MVP:** Track a timestamp for backend failures and retry after 60 seconds.
 
 ### 5. Facility Issue Reporting
 
@@ -80,6 +80,10 @@ This document tracks potential future enhancements for the `loofinder-web` front
 ### Lightweight Frontend Analytics
 
 - The frontend tracks app load, geolocation failures, filter usage, search-area clicks, directions, review outcomes, feedback outcomes, backend availability, Overpass failures, and frontend errors.
+
+### Backend Recovery / Resilience
+
+- `backendUnavailable` clears itself on the next successful request (`markBackendRecovered()`), and repeated failures back off exponentially (30s → 60s → 120s → 240s, capped at 5min via `backendFailureStreak`) so a genuinely down backend isn't hammered. Overpass fetches have per-endpoint timeouts, last-good-endpoint memory, superseded-load cancellation, and one silent retry before surfacing an error.
 
 ## Parked Ideas
 

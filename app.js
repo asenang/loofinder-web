@@ -1141,7 +1141,7 @@ syncSupportMenuForViewport();
 // Environment Configuration
 const IS_LOCAL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname === '';
 const BACKEND_URL = IS_LOCAL ? "http://localhost:8000" : "https://loofinder-api.onrender.com";
-const APP_VERSION = "15.21";
+const APP_VERSION = "15.22";
 
 // --- Tip Prompt config ---------------------------------------------------
 // Show the BuyMeACoffee nudge after the user has clearly gotten value (a
@@ -1234,11 +1234,18 @@ let activeFilters = { accessible: false, baby: false, free: false, unisex: false
 let disableFacilityNameSaves = false;
 let backendUnavailable = false;
 let backendRetryAfterMs = 0;
+// Consecutive failed retry windows. Drives exponential backoff so a
+// sustained outage (e.g. a Render free-tier cold start, or the service
+// being down) is retried less and less often instead of every 30s forever.
+let backendFailureStreak = 0;
 let currentLoadToken = 0;
 let progressiveRenderTimer = null;
 let feedbackSubmitting = false;
 const RATING_SUMMARY_TTL_MS = 60 * 1000;
-const BACKEND_RECOVERY_RETRY_MS = 30 * 1000;
+// Backoff schedule: 30s, 60s, 120s, 240s, then capped at 5min.
+const BACKEND_BACKOFF_BASE_MS = 30 * 1000;
+const BACKEND_BACKOFF_MAX_MS = 5 * 60 * 1000;
+const BACKEND_BACKOFF_MAX_STREAK = 6; // guards Math.pow; delay is capped anyway
 const ratingSummaryInFlight = new Set();
 let facilityListItemMap = new Map();
 let selectedFacilityListItemEl = null;
@@ -1821,6 +1828,7 @@ function markBackendRecovered(source) {
     backendUnavailable = false;
     disableFacilityNameSaves = false;
     backendRetryAfterMs = 0;
+    backendFailureStreak = 0;
     trackEvent('backend_recovered', { source });
 
     if (_pendingFacilitySaves.length && !_pendingFacilitySaveTimer) {
@@ -1829,13 +1837,30 @@ function markBackendRecovered(source) {
 }
 
 function markBackendUnavailable(reason) {
-    if (!backendUnavailable) {
+    const now = Date.now();
+    const firstFailure = !backendUnavailable;
+    // Only escalate the backoff when this failure opens a NEW retry window
+    // (we're past the previously scheduled retry time). Parallel callers that
+    // all fail together in one burst then share a single escalation instead
+    // of each bumping the streak and blowing the delay up instantly.
+    const isNewFailureWindow = firstFailure || now >= backendRetryAfterMs;
+
+    if (firstFailure) {
         console.warn(`Backend unavailable (${reason}). Running in limited mode.`);
         trackEvent('backend_unavailable_marked', { reason });
     }
+
     backendUnavailable = true;
     disableFacilityNameSaves = true;
-    backendRetryAfterMs = Date.now() + BACKEND_RECOVERY_RETRY_MS;
+
+    if (isNewFailureWindow) {
+        backendFailureStreak = Math.min(backendFailureStreak + 1, BACKEND_BACKOFF_MAX_STREAK);
+        const delay = Math.min(
+            BACKEND_BACKOFF_BASE_MS * Math.pow(2, backendFailureStreak - 1),
+            BACKEND_BACKOFF_MAX_MS
+        );
+        backendRetryAfterMs = now + delay;
+    }
 }
 
 // Track unique ID alongside the name
@@ -2036,7 +2061,10 @@ async function flushFacilitySaves() {
     _pendingFacilitySaveTimer = null;
     if (!_pendingFacilitySaves.length) return;
     if (!shouldAttemptBackendRequest()) {
-        _pendingFacilitySaveTimer = setTimeout(flushFacilitySaves, BACKEND_RECOVERY_RETRY_MS);
+        // Re-check when the current backoff window is due to reopen (min 30s)
+        // rather than polling every flat 30s through a long backoff.
+        const wait = Math.max(backendRetryAfterMs - Date.now(), BACKEND_BACKOFF_BASE_MS);
+        _pendingFacilitySaveTimer = setTimeout(flushFacilitySaves, wait);
         return;
     }
     const batch = _pendingFacilitySaves.splice(0, 200);

@@ -777,6 +777,24 @@ button.btn-report, .btn-report { background: #fff4e5; color: #92400e !important;
 .spinner { width: 20px; height: 20px; border: 3px solid #e2e8f0; border-top: 3px solid #007aff; border-radius: 50%; animation: spin 1s linear infinite; }
 @keyframes spin { 100% { transform: rotate(360deg); } }
 
+/* Animated toilet loader: the lid hinges at its back edge and flaps
+   open/closed while data loads. Colour comes from currentColor (brand blue). */
+.loo-loader { display: inline-flex; color: #007aff; flex-shrink: 0; }
+.loo-loader-svg { width: 28px; height: 28px; display: block; }
+.loo-lid {
+    transform-box: fill-box;
+    transform-origin: left center; /* hinge at the back of the seat */
+    animation: looLidFlap 1.5s ease-in-out infinite;
+}
+@keyframes looLidFlap {
+    0%, 100% { transform: rotate(0deg); }   /* closed, resting on the seat */
+    45%, 55% { transform: rotate(-108deg); } /* lifted fully open, brief hold */
+}
+@media (prefers-reduced-motion: reduce) {
+    .loo-lid { animation: none; }
+}
+.theme-dark .loo-loader { color: #3b82f6; }
+
 /* --- Modals & Reviews --- */
 .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.4); z-index: 3000; justify-content: center; align-items: center; }
 .modal-content { background: white; padding: 24px; border-radius: 16px; width: 90%; max-width: 400px; box-shadow: 0 10px 40px rgba(0,0,0,0.2); }
