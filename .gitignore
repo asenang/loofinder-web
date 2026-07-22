@@ -9,3 +9,7 @@ dist/
 .vscode/
 windsurf_deployment.yaml
 *.log
+
+# Local design/preview scratch pages (not part of the deployed site)
+loader-preview.html
+_scratch_*.html
