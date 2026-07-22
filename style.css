@@ -777,23 +777,36 @@ button.btn-report, .btn-report { background: #fff4e5; color: #92400e !important;
 .spinner { width: 20px; height: 20px; border: 3px solid #e2e8f0; border-top: 3px solid #007aff; border-radius: 50%; animation: spin 1s linear infinite; }
 @keyframes spin { 100% { transform: rotate(360deg); } }
 
-/* Animated toilet loader: the lid hinges at its back edge and flaps
-   open/closed while data loads. Colour comes from currentColor (brand blue). */
-.loo-loader { display: inline-flex; color: #007aff; flex-shrink: 0; }
+/* Animated toilet loader: a flat side-view toilet that gently floats while
+   little bubbles rise from the bowl. Fixed slate/blue palette (reads on both
+   the light and dark loader pill), so no theme override is needed. */
+.loo-loader { display: inline-flex; flex-shrink: 0; }
 .loo-loader-svg { width: 28px; height: 28px; display: block; }
-.loo-lid {
+.flat-toilet { animation: flatFloat 2s ease-in-out infinite; }
+.bubble {
     transform-box: fill-box;
-    transform-origin: left center; /* hinge at the back of the seat */
-    animation: looLidFlap 1.5s ease-in-out infinite;
+    transform-origin: center bottom;
+    animation: bubbleRise 1.4s ease-in infinite;
+    opacity: 0;
+    fill: #3b82f6;
 }
-@keyframes looLidFlap {
-    0%, 100% { transform: rotate(0deg); }   /* closed, resting on the seat */
-    45%, 55% { transform: rotate(-108deg); } /* lifted fully open, brief hold */
+.bubble-1 { animation-delay: 0s; }
+.bubble-2 { animation-delay: 0.4s; }
+.bubble-3 { animation-delay: 0.8s; }
+@keyframes flatFloat {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-3px); }
+}
+@keyframes bubbleRise {
+    0% { transform: translateY(8px) scale(0); opacity: 0; }
+    30% { opacity: 1; }
+    90% { opacity: 0.8; }
+    100% { transform: translateY(-16px) scale(1.2); opacity: 0; }
 }
 @media (prefers-reduced-motion: reduce) {
-    .loo-lid { animation: none; }
+    .flat-toilet { animation: none; }
+    .bubble { animation: none; opacity: 0; }
 }
-.theme-dark .loo-loader { color: #3b82f6; }
 
 /* --- Modals & Reviews --- */
 .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.4); z-index: 3000; justify-content: center; align-items: center; }
