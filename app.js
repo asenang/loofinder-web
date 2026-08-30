@@ -1,4 +1,29 @@
 const DEFAULT_CITY_FALLBACK = { city: 'Melbourne', lat: -37.8136, lng: 144.9631, zoom: 13 };
+
+// CARTO closed off keyless basemap access; their tiles now render an
+// "API KEY REQUIRED" placeholder instead of the map. Paste a CARTO key here to
+// restore the original light/dark basemaps. Left blank we fall back to OSM,
+// which has no dark variant, so dark mode is applied as a filter on the tiles.
+const CARTO_API_KEY = '';
+
+const OSM_ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+const CARTO_ATTRIBUTION = OSM_ATTRIBUTION + ' &copy; <a href="https://carto.com/attributions">CARTO</a>';
+
+// Tile source for the given theme. Falls back to OSM when no CARTO key is set.
+function getBaseTileConfig(theme) {
+    if (CARTO_API_KEY) {
+        return {
+            url: `https://{s}.basemaps.cartocdn.com/${theme === 'dark' ? 'dark_all' : 'light_all'}/{z}/{x}/{y}{r}.png?api_key=${CARTO_API_KEY}`,
+            options: { maxZoom: 20, attribution: CARTO_ATTRIBUTION },
+            needsDarkFilter: false
+        };
+    }
+    return {
+        url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+        options: { maxZoom: 20, maxNativeZoom: 19, attribution: OSM_ATTRIBUTION },
+        needsDarkFilter: theme === 'dark'
+    };
+}
 const EXPERIMENTAL_MOBILE_MAP_ROTATION = window.matchMedia('(max-width: 768px)').matches;
 
 // Initialize map with fallback coordinates (will be updated to user location if available)
@@ -148,10 +173,9 @@ function applyTheme(theme, persist = true) {
         map.removeLayer(baseMapLayer);
     }
 
-    baseMapLayer = L.tileLayer(
-        `https://{s}.basemaps.cartocdn.com/${themeMode === 'dark' ? 'dark_all' : 'light_all'}/{z}/{x}/{y}{r}.png`,
-        { maxZoom: 20 }
-    ).addTo(map);
+    const tileConfig = getBaseTileConfig(themeMode);
+    document.documentElement.classList.toggle('tiles-dark-filter', tileConfig.needsDarkFilter);
+    baseMapLayer = L.tileLayer(tileConfig.url, tileConfig.options).addTo(map);
 
     if (persist) {
         localStorage.setItem('loofinder-theme', themeMode);
