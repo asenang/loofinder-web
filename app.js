@@ -2,28 +2,47 @@ const DEFAULT_CITY_FALLBACK = { city: 'Melbourne', lat: -37.8136, lng: 144.9631,
 
 // CARTO closed off keyless basemap access; their tiles now render an
 // "API KEY REQUIRED" placeholder instead of the map. Paste a CARTO key here to
-// restore the original light/dark basemaps. Left blank we fall back to OSM,
-// which has no dark variant, so dark mode is applied as a filter on the tiles.
-const CARTO_API_KEY = '';
+// restore the original Positron/Dark Matter basemaps exactly.
+const CARTO_API_KEY = 'cb1_2kls_1_6f98b00c2dc2e2474556f12e';
 
 const OSM_ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
 const CARTO_ATTRIBUTION = OSM_ATTRIBUTION + ' &copy; <a href="https://carto.com/attributions">CARTO</a>';
+const ESRI_ATTRIBUTION = 'Tiles &copy; <a href="https://www.esri.com/">Esri</a>';
 
-// Tile source for the given theme. Falls back to OSM when no CARTO key is set.
-function getBaseTileConfig(theme) {
+// Basemap layers for the given theme, bottom-most first.
+//
+// Without a CARTO key we fall back to Esri's Canvas basemaps. They are keyless
+// and, like Positron/Dark Matter, are drawn as deliberately muted grey canvases
+// — which is what keeps the blue markers legible. Plain openstreetmap.org tiles
+// are not a substitute here: same data, but a far denser full-colour style that
+// no CSS filter can thin out.
+//
+// Esri splits labels into a separate transparent "Reference" layer, so the
+// fallback is two tile layers rather than one.
+function getBaseTileLayers(theme) {
+    const isDark = theme === 'dark';
+
     if (CARTO_API_KEY) {
-        return {
-            url: `https://{s}.basemaps.cartocdn.com/${theme === 'dark' ? 'dark_all' : 'light_all'}/{z}/{x}/{y}{r}.png?api_key=${CARTO_API_KEY}`,
-            options: { maxZoom: 20, attribution: CARTO_ATTRIBUTION },
-            needsDarkFilter: false
-        };
+        return [{
+            url: `https://{s}.basemaps.cartocdn.com/${isDark ? 'dark_all' : 'light_all'}/{z}/{x}/{y}{r}.png?api_key=${CARTO_API_KEY}`,
+            options: { maxZoom: 20, attribution: CARTO_ATTRIBUTION }
+        }];
     }
-    return {
-        url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-        options: { maxZoom: 20, maxNativeZoom: 19, attribution: OSM_ATTRIBUTION },
-        needsDarkFilter: theme === 'dark'
-    };
+
+    const canvas = isDark ? 'Dark' : 'Light';
+    const esriOptions = { maxZoom: 20, maxNativeZoom: 19, attribution: ESRI_ATTRIBUTION };
+    return [
+        {
+            url: `https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_${canvas}_Gray_Base/MapServer/tile/{z}/{y}/{x}`,
+            options: esriOptions
+        },
+        {
+            url: `https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_${canvas}_Gray_Reference/MapServer/tile/{z}/{y}/{x}`,
+            options: { maxZoom: 20, maxNativeZoom: 19 }
+        }
+    ];
 }
+
 const EXPERIMENTAL_MOBILE_MAP_ROTATION = window.matchMedia('(max-width: 768px)').matches;
 
 // Initialize map with fallback coordinates (will be updated to user location if available)
@@ -173,9 +192,9 @@ function applyTheme(theme, persist = true) {
         map.removeLayer(baseMapLayer);
     }
 
-    const tileConfig = getBaseTileConfig(themeMode);
-    document.documentElement.classList.toggle('tiles-dark-filter', tileConfig.needsDarkFilter);
-    baseMapLayer = L.tileLayer(tileConfig.url, tileConfig.options).addTo(map);
+    baseMapLayer = L.layerGroup(
+        getBaseTileLayers(themeMode).map((layer) => L.tileLayer(layer.url, layer.options))
+    ).addTo(map);
 
     if (persist) {
         localStorage.setItem('loofinder-theme', themeMode);

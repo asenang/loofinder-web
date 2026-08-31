@@ -1402,10 +1402,3 @@ textarea { width: 100%; padding: 12px; border: 1px solid #e2e8f0; border-radius:
         color: #f8fafc;
     }
 }
-/* Dark basemap without a dark tile source. Only applied when the OSM fallback
-   is in use (see getBaseTileConfig in app.js) — CARTO's dark_all tiles are
-   already dark and must not be filtered. Scoped to the tile pane so markers,
-   popups and controls keep their own colours. */
-.tiles-dark-filter .leaflet-tile-pane {
-    filter: invert(1) hue-rotate(180deg) brightness(0.92) contrast(0.88) saturate(0.6);
-}
