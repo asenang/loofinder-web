@@ -1346,13 +1346,18 @@ function setSearchAreaButtonState(state) {
     button.classList.toggle('is-current', state === SEARCH_AREA_STATES.CURRENT);
     button.classList.toggle('is-loading', state === SEARCH_AREA_STATES.LOADING);
 
-    if (state === SEARCH_AREA_STATES.HIDDEN || state === SEARCH_AREA_STATES.LOADING || state === SEARCH_AREA_STATES.CURRENT) {
+    // LOADING deliberately stays visible: an Overpass query can queue for 30s,
+    // and hiding the only indicator makes that read as a broken app rather
+    // than a slow one. It renders disabled, with the spinner icon and label
+    // set below.
+    if (state === SEARCH_AREA_STATES.HIDDEN || state === SEARCH_AREA_STATES.CURRENT) {
         button.style.display = 'none';
         button.disabled = true;
         return;
     }
 
     button.style.display = 'inline-flex';
+
     button.disabled = state !== SEARCH_AREA_STATES.STALE;
 
     let icon = 'refresh';
@@ -2508,7 +2513,12 @@ function maybeShowTipPromptAfterDirections(source) {
 // overloaded backends), and a bare fetch has no client-side deadline, so a
 // stalled request would block the loader indefinitely. On abort we treat it
 // like any other failure and move to the next endpoint.
-const OVERPASS_FETCH_TIMEOUT_MS = 8000;
+// Overpass is a free shared service and queues requests per client IP; a
+// busy period puts 25-40s of queue wait in front of a response that then
+// transfers in about a second. At 8s we aborted every one of those, fell
+// through both endpoints and the wider fallback query, and showed the user
+// nothing after ~24s of waiting. Wait long enough to actually get an answer.
+const OVERPASS_FETCH_TIMEOUT_MS = 30000;
 
 // Index of the endpoint that most recently succeeded. Subsequent queries
 // start there instead of always hammering endpoint 0 — when the primary is
