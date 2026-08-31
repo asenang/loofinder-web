@@ -24,7 +24,7 @@ function getBaseTileLayers(theme) {
 
     if (CARTO_API_KEY) {
         return [{
-            url: `https://{s}.basemaps.cartocdn.com/${isDark ? 'dark_all' : 'light_all'}/{z}/{x}/{y}{r}.png?api_key=${CARTO_API_KEY}`,
+            url: `https://{s}.basemaps.cartocdn.com/${isDark ? 'dark_all' : 'light_all'}/{z}/{x}/{y}{r}.png?key=${CARTO_API_KEY}`,
             options: { maxZoom: 20, attribution: CARTO_ATTRIBUTION }
         }];
     }
