@@ -2,13 +2,13 @@
  * Strategy:
  *   - App shell (HTML/CSS/JS, manifest, icons): cache-first w/ network fallback,
  *     refreshed in the background (stale-while-revalidate).
- *   - Leaflet tiles (a.tile.openstreetmap.org etc.): cache-first with a hard
+ *   - Leaflet basemap tiles (Esri Canvas, CARTO, OSM): cache-first with a hard
  *     cap so we don't fill the user's disk on long browsing sessions.
  *   - Backend API (loofinder API, Overpass, Nominatim proxy): network-first,
  *     fall back to cache so the last-seen data still renders offline.
  *   - Everything else: network-first.
  */
-const SW_VERSION = "v1.0.9";
+const SW_VERSION = "v1.0.11";
 const APP_CACHE = `loofinder-app-${SW_VERSION}`;
 const TILE_CACHE = `loofinder-tiles-${SW_VERSION}`;
 const API_CACHE = `loofinder-api-${SW_VERSION}`;
@@ -61,7 +61,7 @@ self.addEventListener("activate", (event) => {
 });
 
 function isTileRequest(url) {
-  return /tile\.openstreetmap\.org|tile\.osm\.org|basemaps\.cartocdn\.com|cartodb-basemaps/.test(
+  return /tile\.openstreetmap\.org|tile\.osm\.org|basemaps\.cartocdn\.com|cartodb-basemaps|server\.arcgisonline\.com/.test(
     url.hostname
   );
 }
